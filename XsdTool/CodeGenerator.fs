@@ -19,7 +19,21 @@ let getRequestResponse (schema: XmlSchema) =
                    |> Seq.fold (fun (acc: Dictionary<string, XmlSchemaElement>) e -> acc.Add(e.Name, e); acc) (Dictionary<_, _>())
     (elements.["request"], elements.["response"])
 
-let BuildCodeUnit schemaFile =
+let BuildCodeUnit assemblyNamespace schemaFile =
     let schema = openSchema schemaFile
     let request, response = getRequestResponse schema
-    CodeCompileUnit()
+
+    let deserializeMethod = CodeMemberMethod(Name="Deserialize")
+    let serializeMethod = CodeMemberMethod(Name="Serialize")
+
+    let targetClass = CodeTypeDeclaration(schema.Id, IsClass=true)
+    targetClass.Members.Add(deserializeMethod) |> ignore
+    targetClass.Members.Add(serializeMethod) |> ignore
+
+    let codeNamespace = CodeNamespace(assemblyNamespace)
+    codeNamespace.Types.Add(targetClass) |> ignore
+
+    let codeCompileUnit = CodeCompileUnit()
+    codeCompileUnit.Namespaces.Add(codeNamespace) |> ignore
+
+    codeCompileUnit

@@ -11,7 +11,7 @@ type Settings = AppSettings<"App.config">
 [<EntryPoint>]
 let main argv =
     let path = Path.GetFullPath(match Settings.XsdSearchPath with | null | "" -> "." | path -> path)
-    let codeUnits = Directory.GetFiles(path, "*.xsd") |> Array.map (BuildCodeUnit)
+    let codeUnits = Directory.GetFiles(path, "*.xsd") |> Array.map (BuildCodeUnit Settings.AssemblyNamespace)
 
     use codeProvider = new CSharpCodeProvider()
     let parameters = CompilerParameters(GenerateExecutable=false, OutputAssembly=Settings.AssemblyName)

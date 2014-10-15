@@ -1,5 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
-<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+<xs:schema id="AnnaIsikuKvalifikatsioonid"
+           xmlns:xs="http://www.w3.org/2001/XMLSchema"
            xmlns:tns="http://producers.etoimik.xtee.riik.ee/producer/etoimik/AnnaIsikuKvalifikatsioonid"
            xmlns:etoimik="http://producers.etoimik.xtee.riik.ee/producer/etoimik"
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
