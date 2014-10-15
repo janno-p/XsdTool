@@ -3,6 +3,7 @@
 open System.CodeDom
 open System.Collections.Generic
 open System.IO
+open System.Reflection
 open System.Xml
 open System.Xml.Schema
 
@@ -23,12 +24,28 @@ let BuildCodeUnit assemblyNamespace schemaFile =
     let schema = openSchema schemaFile
     let request, response = getRequestResponse schema
 
+    let deserializeXmlReaderParameter = CodeParameterDeclarationExpression(typeof<XmlReader>, "reader")
+
     let deserializeMethod = CodeMemberMethod(Name="Deserialize")
+    deserializeMethod.Parameters.Add(deserializeXmlReaderParameter) |> ignore
+    deserializeMethod.ReturnType <- CodeTypeReference(typeof<obj[]>)
+    deserializeMethod.Statements.Add(CodeMethodReturnStatement(CodePrimitiveExpression(null))) |> ignore
+    deserializeMethod.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
+
+    let serializeXmlWriterParameter = CodeParameterDeclarationExpression(typeof<XmlWriter>, "writer")
+    let serializeObjParameter = CodeParameterDeclarationExpression(typeof<obj>, "obj")
+
     let serializeMethod = CodeMemberMethod(Name="Serialize")
+    serializeMethod.Parameters.Add(serializeXmlWriterParameter) |> ignore
+    serializeMethod.Parameters.Add(serializeObjParameter) |> ignore
+    serializeMethod.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
 
     let targetClass = CodeTypeDeclaration(schema.Id, IsClass=true)
+    targetClass.Members.Add(new CodeConstructor(Attributes=MemberAttributes.Private)) |> ignore;
     targetClass.Members.Add(deserializeMethod) |> ignore
     targetClass.Members.Add(serializeMethod) |> ignore
+    targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
+    targetClass.TypeAttributes <- TypeAttributes.Public ||| TypeAttributes.Sealed
 
     let codeNamespace = CodeNamespace(assemblyNamespace)
     codeNamespace.Types.Add(targetClass) |> ignore
