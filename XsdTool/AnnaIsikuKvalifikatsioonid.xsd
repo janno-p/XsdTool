@@ -1,0 +1,152 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:tns="http://producer.etoimik.xtee.riik.ee/producer/etoimik/AnnaIsikuKvalifikatsioonid"
+           xmlns:etoimik="http://producer.etoimik.xtee.riik.ee/producer/etoimik"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           targetNamespace="http://producer.etoimik.xtee.riik.ee/producer/etoimik/AnnaIsikuKvalifikatsioonid"
+           elementFormDefault="unqualified"
+           xsi:schemaLocation="http://producer.etoimik.xtee.riik.ee/producer/etoimik BaseTypes.xsd">
+  <xs:group name="SeaduseSateVastus">
+    <xs:sequence>
+      <xs:element name="AlgusKP" type="xs:date" nillable="true"/>
+      <xs:element name="JaguNR" type="xs:long" nillable="true"/>
+      <xs:element name="JaoNimetusKL" type="xs:long" nillable="true"/>
+      <xs:element name="JaotiseNimetusKL" type="xs:long" nillable="true"/>
+      <xs:element name="JaotisNR" type="xs:long" nillable="true"/>
+      <xs:element name="LiikKL" type="xs:long" nillable="true"/>
+      <xs:element name="Loige" type="xs:long" nillable="true"/>
+      <xs:element name="LoigePrimm" type="xs:long" nillable="true"/>
+      <xs:element name="LoppKP" type="xs:date" nillable="true"/>
+      <xs:element name="ObjektID" type="xs:long" nillable="true"/>
+      <xs:element name="Paragrahv" type="xs:long" nillable="true"/>
+      <xs:element name="ParagrahvPrimm" type="xs:long" nillable="true"/>
+      <xs:element name="PeatykiNimetusKL" type="xs:long" nillable="true"/>
+      <xs:element name="PeatykkNR" type="xs:long" nillable="true"/>
+      <xs:element name="Punkt" type="xs:string" nillable="true"/>
+      <xs:element name="PunktPrimm" type="xs:long" nillable="true"/>
+      <xs:element name="SeadustikKL" type="xs:long" nillable="true"/>
+      <xs:element name="Tekst" type="xs:string" nillable="true"/>
+      <xs:element name="TekstLyhendatult" type="xs:string" nillable="true"/>
+    </xs:sequence>
+  </xs:group>
+  <xs:complexType name="AnnaIsikuKvalifikatsioonidParing">
+    <xs:sequence>
+      <xs:choice>
+        <xs:element name="AsjaNR" type="xs:string"/>
+        <xs:element name="Viitenumber" type="xs:string"/>
+      </xs:choice>
+      <xs:choice>
+        <xs:element name="Isikukood" type="xs:string"/>
+        <xs:sequence>
+          <xs:element name="IsikuEesnimi" type="xs:string"/>
+          <xs:element name="IsikuNimi" type="xs:string"/>
+          <xs:element name="IsikuSynniKP" type="xs:date"/>
+        </xs:sequence>
+      </xs:choice>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="FyysilineIsik" etoimik:type="etoimik:FyysilineIsik">
+    <xs:sequence>
+      <xs:element name="Eesnimi" type="xs:string"/>
+      <xs:element name="Nimi" type="xs:string"/>
+      <xs:element name="Kood" type="xs:string" nillable="true"/>
+      <xs:element name="MuudeRiikideKoodid" type="xs:string" nillable="true"/>
+      <xs:element name="ObjektID" type="xs:long"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="KvalifikatsiooniParagrahv" etoimik:type="etoimik:KvalifikatsiooniParagrahv">
+    <xs:group ref="tns:SeaduseSateVastus" />
+  </xs:complexType>
+  <xs:complexType name="KvalifikatsiooniParagrahvid">
+    <xs:sequence>
+      <xs:element name="KvalifikatsiooniParagrahv" type="tns:KvalifikatsiooniParagrahv" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="SyydistusPunkt" etoimik:type="etoimik:SyydistusPunkt">
+    <xs:sequence>
+      <xs:element name="AlgusKP" type="xs:date" nillable="true"/>
+      <xs:element name="KlientsysteemiID" type="xs:string" nillable="true"/>
+      <xs:element name="LahendiKP" type="xs:date" nillable="true"/>
+      <xs:element name="LahendKL" type="xs:long" nillable="true"/>
+      <xs:element name="LoppKP" type="xs:date" nillable="true"/>
+      <xs:element name="ObjektID" type="xs:long" nillable="true"/>
+      <xs:element name="SulgemiseKP" type="xs:dateTime" nillable="true"/>
+      <xs:element name="SyydistusPunktCSV" type="xs:string" nillable="true"/>
+      <xs:element name="KvalifikatsiooniParagrahvid" type="tns:KvalifikatsiooniParagrahvid" nillable="true"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="SyydistusPunktid">
+    <xs:sequence>
+      <xs:element name="SyydistusPunkt" type="tns:SyydistusPunkt" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="Sanktsioon" etoimik:type="etoimik:Sanktsioon">
+    <xs:sequence>
+      <xs:element name="ObjektID" type="xs:long"/>
+      <xs:element name="AlaLiikKL" type="xs:long" nillable="true"/>
+      <xs:element name="LiikKL" type="xs:long"/>
+      <xs:element name="TyypKL" type="xs:long"/>
+      <xs:element name="AluseksOlevadSyydistusPunktid" type="tns:SyydistusPunktid" nillable="true"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="Sanktsioonid">
+    <xs:sequence>
+      <xs:element name="Sanktsioon" type="tns:Sanktsioon" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="ToiminguOsaline" etoimik:type="etoimik:ToiminguOsaline">
+    <xs:sequence>
+      <xs:element name="FyysilineIsik" type="tns:FyysilineIsik" nillable="true"/>
+      <xs:element name="Sanktsioonid" type="tns:Sanktsioonid" nillable="true"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="ToiminguOsalised">
+    <xs:sequence>
+      <xs:element name="ToiminguOsaline" type="tns:ToiminguOsaline" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="SeaduseSate" etoimik:type="etoimik:SeaduseSate">
+    <xs:group ref="tns:SeaduseSateVastus"/>
+  </xs:complexType>
+  <xs:complexType name="SeaduseSatted">
+    <xs:sequence>
+      <xs:element name="SeaduseSate" type="tns:SeaduseSate" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="Toiming" etoimik:type="etoimik:Toiming">
+    <xs:sequence>
+      <xs:element name="AlaLiikKL" type="xs:long" nillable="true"/>
+      <xs:element name="LiikKL" type="xs:long"/>
+      <xs:element name="ObjektID" type="xs:long"/>
+      <xs:element name="ToiminguOsalised" type="tns:ToiminguOsalised" nillable="true"/>
+      <xs:element name="Alused" type="tns:SeaduseSatted" nillable="true"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="Toimingud">
+    <xs:sequence>
+      <xs:element name="Toiming" type="tns:Toiming" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="Menetlus" etoimik:type="etoimik:Menetlus">
+    <xs:sequence>
+      <xs:element name="MenetluseNR" type="xs:string"/>
+      <xs:element name="ObjektID" type="xs:long"/>
+      <xs:element name="Toimingud" type="tns:Toimingud" nillable="true"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="Menetlused">
+    <xs:sequence>
+      <xs:element name="Menetlus" type="tns:Menetlus" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="AnnaIsikuKvalifikatsioonidVastus" etoimik:type="etoimik:Asi">
+    <xs:sequence>
+      <xs:element name="AsjaNR" type="xs:string"/>
+      <xs:element name="LiikKL" type="xs:long" nillable="true"/>
+      <xs:element name="ObjektID" type="xs:long"/>
+      <xs:element name="Menetlused" type="tns:Menetlused" nillable="true"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:element name="request" type="tns:AnnaIsikuKvalifikatsioonidParing"/>
+  <xs:element name="response" type="tns:AnnaIsikuKvalifikatsioonidVastus" nillable="true"/>
+</xs:schema>
