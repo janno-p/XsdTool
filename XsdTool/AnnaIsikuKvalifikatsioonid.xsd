@@ -1,11 +1,11 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
-           xmlns:tns="http://producer.etoimik.xtee.riik.ee/producer/etoimik/AnnaIsikuKvalifikatsioonid"
-           xmlns:etoimik="http://producer.etoimik.xtee.riik.ee/producer/etoimik"
+           xmlns:tns="http://producers.etoimik.xtee.riik.ee/producer/etoimik/AnnaIsikuKvalifikatsioonid"
+           xmlns:etoimik="http://producers.etoimik.xtee.riik.ee/producer/etoimik"
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-           targetNamespace="http://producer.etoimik.xtee.riik.ee/producer/etoimik/AnnaIsikuKvalifikatsioonid"
+           targetNamespace="http://producers.etoimik.xtee.riik.ee/producer/etoimik/AnnaIsikuKvalifikatsioonid"
            elementFormDefault="unqualified"
-           xsi:schemaLocation="http://producer.etoimik.xtee.riik.ee/producer/etoimik BaseTypes.xsd">
+           xsi:schemaLocation="http://producers.etoimik.xtee.riik.ee/producer/etoimik BaseTypes.xsd">
   <xs:group name="SeaduseSateVastus">
     <xs:sequence>
       <xs:element name="AlgusKP" type="xs:date" nillable="true"/>

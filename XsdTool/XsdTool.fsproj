@@ -36,6 +36,12 @@
     <Reference Include="System.Numerics" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Xml" />
+    <Reference Include="FSharp.Configuration">
+      <HintPath>..\packages\FSharp.Configuration.0.4.3\lib\net40\FSharp.Configuration.dll</HintPath>
+    </Reference>
+    <Reference Include="SharpYaml">
+      <HintPath>..\packages\FSharp.Configuration.0.4.3\lib\net40\SharpYaml.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
@@ -46,5 +52,7 @@
     <None Include="AnnaIsikuKvalifikatsioonid.xsd">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="App.config" />
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>
