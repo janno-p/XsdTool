@@ -36,7 +36,7 @@
         <xs:element name="AsjaNR" type="xs:string"/>
         <xs:element name="Viitenumber" type="xs:string"/>
       </xs:choice>
-      <xs:choice id="IsikuAndmedVõiIsikukood">
+      <xs:choice id="IsikuAndmedVõiIsikukoodChoice">
         <xs:element name="Isikukood" type="xs:string"/>
         <xs:sequence id="IsikuAndmed">
           <xs:element name="IsikuEesnimi" type="xs:string"/>
