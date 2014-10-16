@@ -38,9 +38,15 @@ let (|XmlSchema|_|) (n: XmlQualifiedName): string option =
         Some n.Name
     else None
 
-let matchType : XmlQualifiedName -> ElementType = function
+let matchType = function
     | XmlSchema "string" -> SimpleType typeof<string>
+    | XmlSchema "date" -> SimpleType typeof<System.Nullable<System.DateTime>>
     | qn -> failwith <| sprintf "Unable to match type %O!" qn
+
+let mapMethod = function
+    | XmlSchema "string" -> "ReadStringExt"
+    | XmlSchema "date" -> "ReadDateTimeExt"
+    | qn -> failwith <| sprintf "Unable to match method for type %O!" qn
 
 let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) =
     let variableIndex = ref 1
@@ -114,6 +120,14 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
                 tagEnum.Members.Add(CodeMemberField("Tag", sequence.Id)) |> ignore
                 let sequenceType = CodeTypeDeclaration(sequence.Id, IsClass=true)
                 addedMembers.Add(sequenceType)
+                for item in sequence.Items do
+                    match item with
+                    | :? XmlSchemaElement as element ->
+                        let tpRef = match matchType element.SchemaTypeName with
+                                    | SimpleType tp -> CodeTypeReference(tp)
+                                    | ComplexType name -> CodeTypeReference(name)
+                        sequenceType.Members.Add(CodeMemberField(tpRef, element.Name, Attributes=MemberAttributes.Public)) |> ignore
+                    | _ -> failwith <| sprintf "Oh noes again: %O" item
                 choiceType.Members.Add(createNewMethod sequence.Id (CodeTypeReference(sequence.Id))) |> ignore
             | _ -> failwith <| sprintf "Not implemented %O" item)
 
@@ -127,14 +141,25 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
             | [] -> upcast CodeThrowExceptionStatement(CodeObjectCreateExpression(CodeTypeReference(typeof<System.Exception>), CodePrimitiveExpression("bla")))
             | x::xs -> match x with
                        | :? XmlSchemaElement as element ->
-                            let createChoice = CodeMethodInvokeExpression(CodeTypeReferenceExpression(choiceType.Name), sprintf "New%s" element.Name, CodeMethodInvokeExpression(varReader, "ReadString"))
+                            let createChoice = CodeMethodInvokeExpression(CodeTypeReferenceExpression(choiceType.Name), sprintf "New%s" element.Name, CodeMethodInvokeExpression(varReader, mapMethod element.SchemaTypeName))
                             upcast CodeConditionStatement(CodeBinaryOperatorExpression(expReaderLocalName, CodeBinaryOperatorType.IdentityEquality, CodePrimitiveExpression(element.Name)),
                                                           [| CodeAssignStatement(CodeVariableReferenceExpression(choiceVarName), createChoice) :> CodeStatement |],
                                                           [| buildDeserializeStatements xs |])
                        | :? XmlSchemaSequence as sequence ->
                             let firstElement = sequence.Items.[0] :?> XmlSchemaElement
+                            let statements: seq<CodeStatement> = seq {
+                                let seqType = CodeTypeReference(sequence.Id)
+                                yield upcast CodeVariableDeclarationStatement(seqType, "x", CodeObjectCreateExpression(seqType))
+                                for item in sequence.Items do
+                                    match item with
+                                    | :? XmlSchemaElement as element ->
+                                        yield upcast CodeAssignStatement(CodePropertyReferenceExpression(CodeVariableReferenceExpression("x"), element.Name), CodeMethodInvokeExpression(varReader, mapMethod element.SchemaTypeName))
+                                    | _ -> failwith <| sprintf "Oh noes: %O" item
+                                let createChoice = CodeMethodInvokeExpression(CodeTypeReferenceExpression(choiceType.Name), sprintf "New%s" sequence.Id, CodeVariableReferenceExpression("x"))
+                                yield upcast CodeAssignStatement(CodeVariableReferenceExpression(choiceVarName), createChoice)
+                            }
                             upcast CodeConditionStatement(CodeBinaryOperatorExpression(expReaderLocalName, CodeBinaryOperatorType.IdentityEquality, CodePrimitiveExpression(firstElement.Name)),
-                                                          [| |],
+                                                          statements |> Seq.toArray,
                                                           [| buildDeserializeStatements xs |])
                        | _ -> failwith <| sprintf "Not implemented %O" x
         deserializeMethod.Statements.Add([ for i in choiceElement.Items -> i] |> List.ofSeq |> buildDeserializeStatements) |> ignore
@@ -176,8 +201,40 @@ let BuildCodeUnit assemblyNamespace schemaFile =
     targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
     targetClass.TypeAttributes <- TypeAttributes.Public ||| TypeAttributes.Sealed
 
+    let extensionMethodsClass = CodeTypeDeclaration("XmlReaderExtensions", IsClass=true)
+    extensionMethodsClass.Attributes <- MemberAttributes.Public
+    extensionMethodsClass.StartDirectives.Add(CodeRegionDirective(CodeRegionMode.Start, sprintf "%s\tstatic" System.Environment.NewLine)) |> ignore
+    extensionMethodsClass.EndDirectives.Add(CodeRegionDirective(CodeRegionMode.End, "")) |> ignore
+
+    let methReadString = CodeMemberMethod(Name="ReadStringExt", Attributes=(MemberAttributes.Public ||| MemberAttributes.Static))
+    methReadString.ReturnType <- CodeTypeReference(typeof<string>)
+    methReadString.Parameters.Add(CodeParameterDeclarationExpression("this System.Xml.XmlReader", "reader")) |> ignore
+    methReadString.Statements.Add(CodeVariableDeclarationStatement(typeof<string>, "result", CodePrimitiveExpression(null))) |> ignore
+    methReadString.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(CodePropertyReferenceExpression(CodeVariableReferenceExpression("reader"), "IsEmptyElement"), CodeBinaryOperatorType.IdentityEquality, CodePrimitiveExpression(false)),
+                                                         [| CodeVariableDeclarationStatement(typeof<string>, "value", CodeMethodInvokeExpression(CodeVariableReferenceExpression("reader"), "ReadString")) :> CodeStatement
+                                                            CodeConditionStatement(CodeMethodInvokeExpression(CodeTypeReferenceExpression(typeof<string>), "IsNullOrEmpty", CodeVariableReferenceExpression("value")),
+                                                                                   [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodePrimitiveExpression(null)) :> CodeStatement |],
+                                                                                   [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodeVariableReferenceExpression("value")) :> CodeStatement |]) :> CodeStatement |])) |> ignore
+    methReadString.Statements.Add(CodeExpressionStatement(CodeMethodInvokeExpression(CodeVariableReferenceExpression("reader"), "Read"))) |> ignore
+    methReadString.Statements.Add(CodeMethodReturnStatement(CodeVariableReferenceExpression("result"))) |> ignore
+    extensionMethodsClass.Members.Add(methReadString) |> ignore
+
+    let methReadDate = CodeMemberMethod(Name="ReadDateTimeExt", Attributes=(MemberAttributes.Public ||| MemberAttributes.Static))
+    methReadDate.ReturnType <- CodeTypeReference(typeof<System.Nullable<System.DateTime>>)
+    methReadDate.Parameters.Add(CodeParameterDeclarationExpression("this System.Xml.XmlReader", "reader")) |> ignore
+    methReadDate.Statements.Add(CodeVariableDeclarationStatement(typeof<System.Nullable<System.DateTime>>, "result", CodePrimitiveExpression(null))) |> ignore
+    methReadDate.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(CodePropertyReferenceExpression(CodeVariableReferenceExpression("reader"), "IsEmptyElement"), CodeBinaryOperatorType.IdentityEquality, CodePrimitiveExpression(false)),
+                                                         [| CodeVariableDeclarationStatement(typeof<string>, "value", CodeMethodInvokeExpression(CodeVariableReferenceExpression("reader"), "ReadString")) :> CodeStatement
+                                                            CodeConditionStatement(CodeMethodInvokeExpression(CodeTypeReferenceExpression(typeof<string>), "IsNullOrEmpty", CodeVariableReferenceExpression("value")),
+                                                                                   [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodePrimitiveExpression(null)) :> CodeStatement |],
+                                                                                   [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodePropertyReferenceExpression(CodeMethodInvokeExpression(CodeTypeReferenceExpression("System.Xml.XmlConvert"), "ToDateTimeOffset", CodeVariableReferenceExpression("value")), "DateTime")) :> CodeStatement |]) :> CodeStatement |])) |> ignore
+    methReadDate.Statements.Add(CodeExpressionStatement(CodeMethodInvokeExpression(CodeVariableReferenceExpression("reader"), "Read"))) |> ignore
+    methReadDate.Statements.Add(CodeMethodReturnStatement(CodeVariableReferenceExpression("result"))) |> ignore
+    extensionMethodsClass.Members.Add(methReadDate) |> ignore
+
     let codeNamespace = CodeNamespace(assemblyNamespace)
     codeNamespace.Types.Add(targetClass) |> ignore
+    codeNamespace.Types.Add(extensionMethodsClass) |> ignore
 
     let codeCompileUnit = CodeCompileUnit()
     codeCompileUnit.Namespaces.Add(codeNamespace) |> ignore
