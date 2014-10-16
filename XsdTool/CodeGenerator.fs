@@ -38,7 +38,38 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
     deserializeMethod.Statements.Add(CodeMethodReturnStatement(CodePrimitiveExpression(null))) |> ignore
     deserializeMethod.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
 
-    deserializeMethod
+    let newMembers = List<CodeTypeMember>()
+    newMembers.Add(deserializeMethod)
+
+    let createChoiceType (choiceElement : XmlSchemaChoice) =
+        let choiceTypeName = match choiceElement.Id with
+                             | null | "" -> failwith "Choice type should have `id` declared"
+                             | id -> id
+        let choiceType = CodeTypeDeclaration(choiceTypeName, IsClass=true)
+        let tagEnum = CodeTypeDeclaration("Tag", IsEnum=true)
+        choiceType.Members.Add(tagEnum) |> ignore
+        for item in choiceElement.Items do
+            match item with
+            | :? XmlSchemaElement as element ->
+                tagEnum.Members.Add(CodeMemberField("Tag", element.Name)) |> ignore
+            | :? XmlSchemaSequence as sequence ->
+                if sequence.Id |> System.String.IsNullOrEmpty then
+                    failwith "Sequence type in choice should have `id` declared"
+                tagEnum.Members.Add(CodeMemberField("Tag", sequence.Id)) |> ignore
+                printfn "TODO: Sequence!!"
+            | _ -> failwith <| sprintf "Not implemented %O" item
+        choiceType
+
+    match requestType.Particle with
+    | :? XmlSchemaSequence as sequence ->
+        for item in sequence.Items do
+            match item with
+            | :? XmlSchemaChoice as choice ->
+                newMembers.Add(createChoiceType choice)
+            | _ -> failwith <| sprintf "Not implemented %O" item
+    | _ -> failwith <| sprintf "Not implemented %O" requestType.Particle
+
+    newMembers
 
 let createSerializationMethod (response: XmlSchemaElement) (schema: XmlSchema) =
     let responseType = schema |> findComplexType response.SchemaTypeName
@@ -59,7 +90,7 @@ let BuildCodeUnit assemblyNamespace schemaFile =
 
     let targetClass = CodeTypeDeclaration(schema.Id, IsClass=true)
     targetClass.Members.Add(new CodeConstructor(Attributes=MemberAttributes.Private)) |> ignore;
-    targetClass.Members.Add(createDeserializationMethod request schema) |> ignore
+    createDeserializationMethod request schema |> Seq.iter (targetClass.Members.Add >> ignore)
     targetClass.Members.Add(createSerializationMethod response schema) |> ignore
     targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
     targetClass.TypeAttributes <- TypeAttributes.Public ||| TypeAttributes.Sealed
