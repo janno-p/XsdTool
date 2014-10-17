@@ -100,22 +100,44 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
             choiceType.Members.Add(ctr) |> ignore
             choiceType.Members.Add(CodeMemberField(tpRef, name, Attributes=MemberAttributes.Private)) |> ignore)
 
-        let createNewMethod name (tpRef: CodeTypeReference) =
-            let createMethod = CodeMemberMethod(Name=(sprintf "New%s" name))
-            createMethod.ReturnType <- CodeTypeReference(choiceType.Name)
-            createMethod.Parameters.Add(CodeParameterDeclarationExpression(tpRef, "value")) |> ignore
-            createMethod.Attributes <- MemberAttributes.Static ||| MemberAttributes.FamilyAndAssembly
-            createMethod.Statements.Add(CodeMethodReturnStatement(CodeObjectCreateExpression(choiceType.Name, CodeFieldReferenceExpression(CodeTypeReferenceExpression("Tag"), name), CodeVariableReferenceExpression("value")))) |> ignore
-            createMethod
+        let createPropertyMethods name (tpRef: CodeTypeReference) i =
+            let initMethod = CodeMemberMethod(Name=(sprintf "New%s" name))
+            initMethod.ReturnType <- CodeTypeReference(choiceType.Name)
+            initMethod.Parameters.Add(CodeParameterDeclarationExpression(tpRef, "value")) |> ignore
+            initMethod.Attributes <- MemberAttributes.Static ||| MemberAttributes.FamilyAndAssembly
+            initMethod.Statements.Add(CodeMethodReturnStatement(CodeObjectCreateExpression(choiceType.Name, CodeFieldReferenceExpression(CodeTypeReferenceExpression("Tag"), name), CodeVariableReferenceExpression("value")))) |> ignore
+            let tryMethod = CodeMemberMethod(Name=(sprintf "TryGet%s" name), Attributes=MemberAttributes.Public)
+            tryMethod.ReturnType <- CodeTypeReference(typeof<bool>)
+            tryMethod.Parameters.Add(CodeParameterDeclarationExpression(tpRef, "value", Direction=FieldDirection.Out)) |> ignore
+            tryMethod.Statements.Add(CodeAssignStatement(CodeVariableReferenceExpression("value"), CodePrimitiveExpression(null))) |> ignore
+            tryMethod.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(CodeFieldReferenceExpression(CodeThisReferenceExpression(), "tag"),
+                                                                                         CodeBinaryOperatorType.IdentityEquality,
+                                                                                         CodePropertyReferenceExpression(CodeTypeReferenceExpression("Tag"), name)),
+                                                            CodeAssignStatement(CodeVariableReferenceExpression("value"), CodeFieldReferenceExpression(CodeThisReferenceExpression(), sprintf "value%d" i)),
+                                                            CodeMethodReturnStatement(CodePrimitiveExpression(true)))) |> ignore
+            tryMethod.Statements.Add(CodeMethodReturnStatement(CodePrimitiveExpression(false))) |> ignore
+            [ initMethod; tryMethod ]
+
+        let matchMethod = CodeMemberMethod(Name="Match", Attributes=MemberAttributes.Public)
+        matchMethod.TypeParameters.Add(CodeTypeParameter("T")) |> ignore
+        matchMethod.ReturnType <- CodeTypeReference(CodeTypeParameter("T"))
+        choiceType.Members.Add(matchMethod) |> ignore
 
         choiceTypeItems |> List.iter (fun item ->
             match item with
             | :? XmlSchemaElement as element ->
-                let tpRef = match matchType element.SchemaTypeName with
+                let et = matchType element.SchemaTypeName
+                let tpRef = match et with
                             | SimpleType tp -> CodeTypeReference(tp)
                             | ComplexType name -> CodeTypeReference(name)
                 tagEnum.Members.Add(CodeMemberField("Tag", element.Name)) |> ignore
-                choiceType.Members.Add(createNewMethod element.Name tpRef) |> ignore
+                let i = (fieldTypes |> Seq.findIndex (fun x -> x = et))
+                matchMethod.Parameters.Add(CodeParameterDeclarationExpression(CodeTypeReference("System.Func", tpRef, CodeTypeReference(CodeTypeParameter("T"))), sprintf "f%s" element.Name)) |> ignore
+                matchMethod.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(CodeFieldReferenceExpression(CodeThisReferenceExpression(), "tag"),
+                                                                                               CodeBinaryOperatorType.IdentityEquality,
+                                                                                               CodePropertyReferenceExpression(CodeTypeReferenceExpression("Tag"), element.Name)),
+                                                                  CodeMethodReturnStatement(CodeMethodInvokeExpression(null, sprintf "f%s" element.Name, CodeFieldReferenceExpression(CodeThisReferenceExpression(), sprintf "value%d" i))))) |> ignore
+                createPropertyMethods element.Name tpRef i |> List.iter (choiceType.Members.Add >> ignore)
             | :? XmlSchemaSequence as sequence ->
                 tagEnum.Members.Add(CodeMemberField("Tag", sequence.Id)) |> ignore
                 let sequenceType = CodeTypeDeclaration(sequence.Id, IsClass=true)
@@ -128,8 +150,17 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
                                     | ComplexType name -> CodeTypeReference(name)
                         sequenceType.Members.Add(CodeMemberField(tpRef, element.Name, Attributes=MemberAttributes.Public)) |> ignore
                     | _ -> failwith <| sprintf "Oh noes again: %O" item
-                choiceType.Members.Add(createNewMethod sequence.Id (CodeTypeReference(sequence.Id))) |> ignore
+                let i = (fieldTypes |> Seq.findIndex (fun x -> x = ComplexType sequence.Id))
+                matchMethod.Parameters.Add(CodeParameterDeclarationExpression(CodeTypeReference("System.Func", CodeTypeReference(sequence.Id), CodeTypeReference(CodeTypeParameter("T"))), sprintf "f%s" sequence.Id)) |> ignore
+                matchMethod.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(CodeFieldReferenceExpression(CodeThisReferenceExpression(), "tag"),
+                                                                                               CodeBinaryOperatorType.IdentityEquality,
+                                                                                               CodePropertyReferenceExpression(CodeTypeReferenceExpression("Tag"), sequence.Id)),
+                                                                  CodeMethodReturnStatement(CodeMethodInvokeExpression(null, sprintf "f%s" sequence.Id, CodeFieldReferenceExpression(CodeThisReferenceExpression(), sprintf "value%d" i))))) |> ignore
+                createPropertyMethods sequence.Id (CodeTypeReference(sequence.Id)) i
+                |> List.iter (choiceType.Members.Add >> ignore)
             | _ -> failwith <| sprintf "Not implemented %O" item)
+
+        matchMethod.Statements.Add(CodeThrowExceptionStatement(CodeObjectCreateExpression(typeof<System.InvalidOperationException>))) |> ignore
 
         let expReaderLocalName = CodePropertyReferenceExpression(varReader, "LocalName")
 
@@ -201,40 +232,9 @@ let BuildCodeUnit assemblyNamespace schemaFile =
     targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
     targetClass.TypeAttributes <- TypeAttributes.Public ||| TypeAttributes.Sealed
 
-    let extensionMethodsClass = CodeTypeDeclaration("XmlReaderExtensions", IsClass=true)
-    extensionMethodsClass.Attributes <- MemberAttributes.Public
-    extensionMethodsClass.StartDirectives.Add(CodeRegionDirective(CodeRegionMode.Start, sprintf "%s\tstatic" System.Environment.NewLine)) |> ignore
-    extensionMethodsClass.EndDirectives.Add(CodeRegionDirective(CodeRegionMode.End, "")) |> ignore
-
-    let methReadString = CodeMemberMethod(Name="ReadStringExt", Attributes=(MemberAttributes.Public ||| MemberAttributes.Static))
-    methReadString.ReturnType <- CodeTypeReference(typeof<string>)
-    methReadString.Parameters.Add(CodeParameterDeclarationExpression("this System.Xml.XmlReader", "reader")) |> ignore
-    methReadString.Statements.Add(CodeVariableDeclarationStatement(typeof<string>, "result", CodePrimitiveExpression(null))) |> ignore
-    methReadString.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(CodePropertyReferenceExpression(CodeVariableReferenceExpression("reader"), "IsEmptyElement"), CodeBinaryOperatorType.IdentityEquality, CodePrimitiveExpression(false)),
-                                                         [| CodeVariableDeclarationStatement(typeof<string>, "value", CodeMethodInvokeExpression(CodeVariableReferenceExpression("reader"), "ReadString")) :> CodeStatement
-                                                            CodeConditionStatement(CodeMethodInvokeExpression(CodeTypeReferenceExpression(typeof<string>), "IsNullOrEmpty", CodeVariableReferenceExpression("value")),
-                                                                                   [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodePrimitiveExpression(null)) :> CodeStatement |],
-                                                                                   [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodeVariableReferenceExpression("value")) :> CodeStatement |]) :> CodeStatement |])) |> ignore
-    methReadString.Statements.Add(CodeExpressionStatement(CodeMethodInvokeExpression(CodeVariableReferenceExpression("reader"), "Read"))) |> ignore
-    methReadString.Statements.Add(CodeMethodReturnStatement(CodeVariableReferenceExpression("result"))) |> ignore
-    extensionMethodsClass.Members.Add(methReadString) |> ignore
-
-    let methReadDate = CodeMemberMethod(Name="ReadDateTimeExt", Attributes=(MemberAttributes.Public ||| MemberAttributes.Static))
-    methReadDate.ReturnType <- CodeTypeReference(typeof<System.Nullable<System.DateTime>>)
-    methReadDate.Parameters.Add(CodeParameterDeclarationExpression("this System.Xml.XmlReader", "reader")) |> ignore
-    methReadDate.Statements.Add(CodeVariableDeclarationStatement(typeof<System.Nullable<System.DateTime>>, "result", CodePrimitiveExpression(null))) |> ignore
-    methReadDate.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(CodePropertyReferenceExpression(CodeVariableReferenceExpression("reader"), "IsEmptyElement"), CodeBinaryOperatorType.IdentityEquality, CodePrimitiveExpression(false)),
-                                                         [| CodeVariableDeclarationStatement(typeof<string>, "value", CodeMethodInvokeExpression(CodeVariableReferenceExpression("reader"), "ReadString")) :> CodeStatement
-                                                            CodeConditionStatement(CodeMethodInvokeExpression(CodeTypeReferenceExpression(typeof<string>), "IsNullOrEmpty", CodeVariableReferenceExpression("value")),
-                                                                                   [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodePrimitiveExpression(null)) :> CodeStatement |],
-                                                                                   [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodePropertyReferenceExpression(CodeMethodInvokeExpression(CodeTypeReferenceExpression("System.Xml.XmlConvert"), "ToDateTimeOffset", CodeVariableReferenceExpression("value")), "DateTime")) :> CodeStatement |]) :> CodeStatement |])) |> ignore
-    methReadDate.Statements.Add(CodeExpressionStatement(CodeMethodInvokeExpression(CodeVariableReferenceExpression("reader"), "Read"))) |> ignore
-    methReadDate.Statements.Add(CodeMethodReturnStatement(CodeVariableReferenceExpression("result"))) |> ignore
-    extensionMethodsClass.Members.Add(methReadDate) |> ignore
-
     let codeNamespace = CodeNamespace(assemblyNamespace)
     codeNamespace.Types.Add(targetClass) |> ignore
-    codeNamespace.Types.Add(extensionMethodsClass) |> ignore
+    codeNamespace.Types.Add(XsdTool.CreateXmlReaderExtensions.createClass()) |> ignore
 
     let codeCompileUnit = CodeCompileUnit()
     codeCompileUnit.Namespaces.Add(codeNamespace) |> ignore

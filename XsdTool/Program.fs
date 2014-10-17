@@ -29,7 +29,7 @@ let main _ =
     use codeProvider = new CSharpCodeProvider()
 
     let execute = printCode codeUnits
-    //let execute = compileAssembly codeUnits
+    let execute = compileAssembly codeUnits
 
     codeProvider |> execute
 
