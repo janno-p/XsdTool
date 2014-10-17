@@ -6,6 +6,7 @@ open System.IO
 open System.Reflection
 open System.Xml
 open System.Xml.Schema
+open System.Xml.Serialization
 
 let settings = XmlReaderSettings()
 settings.ValidationEventHandler.Add(fun e -> eprintfn "%s" e.Message)
@@ -25,13 +26,18 @@ let getRequestResponse (schema: XmlSchema) =
     let elements = [for e in schema.Items -> e]
                    |> Seq.choose (fun e -> match e with | :? XmlSchemaElement as e -> Some e | _ -> None)
                    |> Seq.fold (fun (acc: Dictionary<string, XmlSchemaElement>) e -> acc.Add(e.Name, e); acc) (Dictionary<_, _>())
-    (elements.["request"], elements.["response"])
+    if elements.ContainsKey("request") && elements.ContainsKey("response") then
+        Some (elements.["request"], elements.["response"])
+    else None
+
+let dtoAssembly = Assembly.Load(@"Etoimik.Web")
 
 type ElementType =
     | SimpleType of System.Type
     | ComplexType of string
 
 let qn ns n = XmlQualifiedName(n, ns)
+let nsET = "http://producers.etoimik.xtee.riik.ee/producer/etoimik"
 
 let (|XmlSchema|_|) (n: XmlQualifiedName): string option =
     if n.Namespace = "http://www.w3.org/2001/XMLSchema" then
@@ -41,12 +47,20 @@ let (|XmlSchema|_|) (n: XmlQualifiedName): string option =
 let matchType = function
     | XmlSchema "string" -> SimpleType typeof<string>
     | XmlSchema "date" -> SimpleType typeof<System.Nullable<System.DateTime>>
+    | XmlSchema "long" -> SimpleType typeof<System.Nullable<int64>>
     | qn -> failwith <| sprintf "Unable to match type %O!" qn
 
 let mapMethod = function
     | XmlSchema "string" -> "ReadStringExt"
     | XmlSchema "date" -> "ReadDateTimeExt"
     | qn -> failwith <| sprintf "Unable to match method for type %O!" qn
+
+let mapWriteMethod = function
+    | XmlSchema "string" -> "WriteStringExt"
+    | XmlSchema "date" -> "WriteDateExt"
+    | XmlSchema "dateTime" -> "WriteDateTimeExt"
+    | XmlSchema "long" -> "WriteLongExt"
+    | qn -> failwith <| sprintf "Unsupported type for serialization %O!" qn
 
 let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) =
     let variableIndex = ref 1
@@ -214,30 +228,103 @@ let createSerializationMethod (response: XmlSchemaElement) (schema: XmlSchema) =
     let serializeXmlWriterParameter = CodeParameterDeclarationExpression(typeof<XmlWriter>, "writer")
     let serializeObjParameter = CodeParameterDeclarationExpression(typeof<obj>, "obj")
 
+    let dtoType =
+        match responseType.UnhandledAttributes |> Array.tryFind (fun a -> a.NamespaceURI = nsET && a.LocalName = "type") with
+        | Some typeName -> typeName.Value
+        | _ -> failwith "Unable to resolve dto type"
+
+    let dtoTypePrefix, dtoTypeName = match dtoType.Split(':') with
+                                     | [| prefix; name |] -> prefix, name
+                                     | _ -> failwith "Invalid name"
+
+    let realType = dtoAssembly.GetTypes()
+                   |> Array.find (fun tp -> if tp.Name = dtoTypeName then
+                                                tp.GetCustomAttributes(typeof<XmlTypeAttribute>, false)
+                                                |> Array.choose (fun a -> match a with | :? XmlTypeAttribute as x -> Some x | _ -> None)
+                                                |> Array.filter (fun a -> a.Namespace = nsET)
+                                                |> Array.length = 1
+                                            else false)
+    let codeType = CodeTypeReference(realType)
+
     let serializeMethod = CodeMemberMethod(Name="Serialize")
     serializeMethod.Parameters.Add(serializeXmlWriterParameter) |> ignore
     serializeMethod.Parameters.Add(serializeObjParameter) |> ignore
     serializeMethod.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
 
+    serializeMethod.Statements.Add(CodeVariableDeclarationStatement(codeType, "value", CodeCastExpression(codeType, CodeVariableReferenceExpression("obj")))) |> ignore
+
+    let schemaTypes = [for i in schema.Items -> i]
+                      |> Seq.choose (fun i -> match i with
+                                              | :? XmlSchemaComplexType as ct ->
+                                                    Some(XmlQualifiedName(ct.Name, schema.TargetNamespace), ct)
+                                              | _ -> None)
+                      |> Seq.fold (fun (acc: Dictionary<_,_>) (k, v) -> acc.Add(k, v); acc) (Dictionary<_,_>())
+
+    let schemaGroups = [for i in schema.Items -> i]
+                       |> Seq.choose (fun i -> match i with
+                                               | :? XmlSchemaGroup as g ->
+                                                     Some(XmlQualifiedName(g.Name, schema.TargetNamespace), g)
+                                               | _ -> None)
+                       |> Seq.fold (fun (acc: Dictionary<_,_>) (k, v) -> acc.Add(k, v); acc) (Dictionary<_,_>())
+
+    let varIndex = ref 1
+
+    let rec buildElementStatements (el: XmlSchemaElement) (exp: CodeExpression) = seq {
+        let exp = CodePropertyReferenceExpression(exp, el.Name)
+        match schemaTypes.TryGetValue(el.SchemaTypeName) with
+        | true, complexType ->
+            match complexType.Particle with
+            | :? XmlSchemaSequence as sequence ->
+                for item in sequence.Items do
+                    match item with
+                    | :? XmlSchemaElement as element -> yield! buildElementStatements element exp
+                    | _ -> failwith <| sprintf "Only elements are supported for serialization. Given: %O." item
+            | :? XmlSchemaGroupRef as groupRef ->
+                match schemaGroups.TryGetValue(groupRef.RefName) with
+                | true, group ->
+                    match group.Particle with
+                    | :? XmlSchemaSequence as sequence ->
+                        for item in sequence.Items do
+                            match item with
+                            | :? XmlSchemaElement as element -> yield! buildElementStatements element exp
+                            | _ -> failwith <| sprintf "Only elements are supported for serialization. Given: %O." item
+                    | _ -> failwith <| sprintf "Only sequences are supported for serialization. Given: %O." group.Particle
+                | false, _ -> failwith <| sprintf "Invalid group reference %O." groupRef.RefName
+            | _ -> failwith <| sprintf "Only sequences or group refs are supported for serialization. Given: %O." complexType.Particle
+        | false, _ ->
+            yield CodeMethodInvokeExpression(CodeVariableReferenceExpression("writer"), mapWriteMethod el.SchemaTypeName, exp)
+    }
+
+    match responseType.Particle with
+    | :? XmlSchemaSequence as sequence ->
+        for item in sequence.Items do
+            match item with
+            | :? XmlSchemaElement as element ->
+                buildElementStatements element (CodeVariableReferenceExpression "v0")
+                |> Seq.iter (serializeMethod.Statements.Add >> ignore)
+            | _ -> failwith <| sprintf "Not implemented %O" (item.GetType())
+    | _ -> failwith <| sprintf "Not implemented %O" (responseType.Particle.GetType())
+
     serializeMethod
 
 let BuildCodeUnit assemblyNamespace schemaFile =
     let schema = openSchema schemaFile
-    let request, response = getRequestResponse schema
+    match getRequestResponse schema with
+    | Some(request, response) ->
+        let targetClass = CodeTypeDeclaration(schema.Id, IsClass=true)
+        targetClass.Members.Add(new CodeConstructor(Attributes=MemberAttributes.Private)) |> ignore;
+        createDeserializationMethod request schema |> Seq.iter (targetClass.Members.Add >> ignore)
+        targetClass.Members.Add(createSerializationMethod response schema) |> ignore
+        targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
+        targetClass.TypeAttributes <- TypeAttributes.Public ||| TypeAttributes.Sealed
 
-    let targetClass = CodeTypeDeclaration(schema.Id, IsClass=true)
-    targetClass.Members.Add(new CodeConstructor(Attributes=MemberAttributes.Private)) |> ignore;
-    createDeserializationMethod request schema |> Seq.iter (targetClass.Members.Add >> ignore)
-    targetClass.Members.Add(createSerializationMethod response schema) |> ignore
-    targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
-    targetClass.TypeAttributes <- TypeAttributes.Public ||| TypeAttributes.Sealed
+        let codeNamespace = CodeNamespace(assemblyNamespace)
+        codeNamespace.Types.Add(targetClass) |> ignore
+        codeNamespace.Types.Add(XsdTool.CreateXmlReaderExtensions.createClass()) |> ignore
 
-    let codeNamespace = CodeNamespace(assemblyNamespace)
-    codeNamespace.Types.Add(targetClass) |> ignore
-    codeNamespace.Types.Add(XsdTool.CreateXmlReaderExtensions.createClass()) |> ignore
+        let codeCompileUnit = CodeCompileUnit()
+        codeCompileUnit.Namespaces.Add(codeNamespace) |> ignore
+        codeCompileUnit.ReferencedAssemblies.Add("System.Xml.dll") |> ignore
 
-    let codeCompileUnit = CodeCompileUnit()
-    codeCompileUnit.Namespaces.Add(codeNamespace) |> ignore
-    codeCompileUnit.ReferencedAssemblies.Add("System.Xml.dll") |> ignore
-
-    codeCompileUnit
+        Some codeCompileUnit
+    | _ -> None

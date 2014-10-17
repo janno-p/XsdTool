@@ -1,13 +1,23 @@
 ﻿module XsdTool.Program
 
 open Microsoft.CSharp
+open System
 open System.CodeDom
 open System.CodeDom.Compiler
 open System.IO
+open System.Reflection
 open System.Text
 open XsdTool.CodeGenerator
 
 type Settings = FSharp.Configuration.AppSettings<"App.config">
+
+AppDomain.CurrentDomain.add_AssemblyResolve(fun _ args ->
+    let assemblyName = AssemblyName(args.Name)
+    let expectedName = sprintf "%s.dll" assemblyName.Name
+    let expectedLocation = Path.Combine(Settings.ProbingPath, expectedName)
+    match File.Exists(expectedLocation) with
+    | true -> Assembly.LoadFrom(expectedLocation)
+    | _ -> null)
 
 let printCode (codeUnits: CodeCompileUnit []) (codeProvider: #CodeDomProvider) =
     codeUnits
@@ -24,12 +34,12 @@ let compileAssembly (codeUnits: CodeCompileUnit []) (codeProvider: #CodeDomProvi
 [<EntryPoint>]
 let main _ =
     let path = Path.GetFullPath(match Settings.XsdSearchPath with | null | "" -> "." | path -> path)
-    let codeUnits = Directory.GetFiles(path, "*.xsd") |> Array.map (BuildCodeUnit Settings.AssemblyNamespace)
+    let codeUnits = Directory.GetFiles(path, "*.xsd") |> Array.choose (BuildCodeUnit Settings.AssemblyNamespace)
 
     use codeProvider = new CSharpCodeProvider()
 
     let execute = printCode codeUnits
-    let execute = compileAssembly codeUnits
+    //let execute = compileAssembly codeUnits
 
     codeProvider |> execute
 
