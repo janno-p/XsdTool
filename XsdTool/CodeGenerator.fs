@@ -62,14 +62,28 @@ let mapWriteMethod = function
     | XmlSchema "long" -> "WriteLongExt"
     | qn -> failwith <| sprintf "Unsupported type for serialization %O!" qn
 
+let getClassName (o: XmlSchemaObject) =
+    match o with
+    | :? XmlSchemaChoice as choice ->
+        match choice.UnhandledAttributes |> Array.tryFind (fun a -> a.NamespaceURI = nsET && a.LocalName = "name") with
+        | Some attr -> attr.Value
+        | _ -> failwith <| sprintf "Choice element has no name element."
+    | :? XmlSchemaSequence as sequence ->
+        match sequence.UnhandledAttributes |> Array.tryFind (fun a -> a.NamespaceURI = nsET && a.LocalName = "name") with
+        | Some attr -> attr.Value
+        | _ -> failwith <| sprintf "Sequence element has no name element."
+    | _ -> failwith <| sprintf "Unhandeled XmlSchemaObject: %O" (o.GetType())
+
+let addParameter name (tp: System.Type) (m: CodeMemberMethod) =
+    m.Parameters.Add(CodeParameterDeclarationExpression(tp, name)) |> ignore
+    m
+
 let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) =
     let variableIndex = ref 1
     let requestType = schema |> findComplexType request.SchemaTypeName
 
-    let deserializeXmlReaderParameter = CodeParameterDeclarationExpression(typeof<XmlReader>, "reader")
-
     let deserializeMethod = CodeMemberMethod(Name="Deserialize")
-    deserializeMethod.Parameters.Add(deserializeXmlReaderParameter) |> ignore
+    deserializeMethod |> addParameter "reader" typeof<XmlReader> |> ignore
     deserializeMethod.ReturnType <- CodeTypeReference(typeof<obj[]>)
     deserializeMethod.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
 
@@ -79,7 +93,7 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
     let varReader = CodeVariableReferenceExpression("reader")
 
     let createChoiceType (choiceElement : XmlSchemaChoice) =
-        let choiceTypeName = match choiceElement.Id with | null | "" -> failwith "Choice type should have `id` declared" | id -> id
+        let choiceTypeName = getClassName choiceElement
         let choiceType = CodeTypeDeclaration(choiceTypeName, IsClass=true)
 
         let tagEnum = CodeTypeDeclaration("Tag", IsEnum=true, TypeAttributes=TypeAttributes.NestedPrivate)
@@ -94,9 +108,7 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
                          |> List.fold (fun (acc: HashSet<_>) item ->
                                 match item with
                                 | :? XmlSchemaElement as element -> acc.Add(matchType element.SchemaTypeName) |> ignore
-                                | :? XmlSchemaSequence as sequence ->
-                                    if sequence.Id |> System.String.IsNullOrEmpty then failwith "Sequence type in choice should have `id` declared"
-                                    acc.Add(ComplexType sequence.Id) |> ignore
+                                | :? XmlSchemaSequence as sequence -> acc.Add(ComplexType (getClassName sequence)) |> ignore
                                 | _ -> failwith <| sprintf "Oh no: %O!" item
                                 acc)
                             (HashSet<_>())
@@ -153,8 +165,9 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
                                                                   CodeMethodReturnStatement(CodeMethodInvokeExpression(null, sprintf "f%s" element.Name, CodeFieldReferenceExpression(CodeThisReferenceExpression(), sprintf "value%d" i))))) |> ignore
                 createPropertyMethods element.Name tpRef i |> List.iter (choiceType.Members.Add >> ignore)
             | :? XmlSchemaSequence as sequence ->
-                tagEnum.Members.Add(CodeMemberField("Tag", sequence.Id)) |> ignore
-                let sequenceType = CodeTypeDeclaration(sequence.Id, IsClass=true)
+                let className = getClassName sequence
+                tagEnum.Members.Add(CodeMemberField("Tag", className)) |> ignore
+                let sequenceType = CodeTypeDeclaration(className, IsClass=true)
                 addedMembers.Add(sequenceType)
                 for item in sequence.Items do
                     match item with
@@ -164,13 +177,13 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
                                     | ComplexType name -> CodeTypeReference(name)
                         sequenceType.Members.Add(CodeMemberField(tpRef, element.Name, Attributes=MemberAttributes.Public)) |> ignore
                     | _ -> failwith <| sprintf "Oh noes again: %O" item
-                let i = (fieldTypes |> Seq.findIndex (fun x -> x = ComplexType sequence.Id))
-                matchMethod.Parameters.Add(CodeParameterDeclarationExpression(CodeTypeReference("System.Func", CodeTypeReference(sequence.Id), CodeTypeReference(CodeTypeParameter("T"))), sprintf "f%s" sequence.Id)) |> ignore
+                let i = (fieldTypes |> Seq.findIndex (fun x -> x = ComplexType className))
+                matchMethod.Parameters.Add(CodeParameterDeclarationExpression(CodeTypeReference("System.Func", CodeTypeReference(className), CodeTypeReference(CodeTypeParameter("T"))), sprintf "f%s" className)) |> ignore
                 matchMethod.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(CodeFieldReferenceExpression(CodeThisReferenceExpression(), "tag"),
                                                                                                CodeBinaryOperatorType.IdentityEquality,
-                                                                                               CodePropertyReferenceExpression(CodeTypeReferenceExpression("Tag"), sequence.Id)),
-                                                                  CodeMethodReturnStatement(CodeMethodInvokeExpression(null, sprintf "f%s" sequence.Id, CodeFieldReferenceExpression(CodeThisReferenceExpression(), sprintf "value%d" i))))) |> ignore
-                createPropertyMethods sequence.Id (CodeTypeReference(sequence.Id)) i
+                                                                                               CodePropertyReferenceExpression(CodeTypeReferenceExpression("Tag"), className)),
+                                                                  CodeMethodReturnStatement(CodeMethodInvokeExpression(null, sprintf "f%s" className, CodeFieldReferenceExpression(CodeThisReferenceExpression(), sprintf "value%d" i))))) |> ignore
+                createPropertyMethods className (CodeTypeReference(className)) i
                 |> List.iter (choiceType.Members.Add >> ignore)
             | _ -> failwith <| sprintf "Not implemented %O" item)
 
@@ -221,10 +234,6 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
     deserializeMethod.Statements.Add(CodeMethodReturnStatement(CodeArrayCreateExpression(typeof<obj>, [for i in 1..(!variableIndex - 1) -> CodeVariableReferenceExpression(sprintf "v%d" i) :> CodeExpression] |> List.toArray))) |> ignore
 
     newMembers
-
-let addParameter name (tp: System.Type) (m: CodeMemberMethod) =
-    m.Parameters.Add(CodeParameterDeclarationExpression(tp, name)) |> ignore
-    m
 
 let createSerializationMethod (response: XmlSchemaElement) (schema: XmlSchema) =
     let responseType = schema |> findComplexType response.SchemaTypeName

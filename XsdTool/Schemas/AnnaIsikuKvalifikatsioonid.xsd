@@ -32,13 +32,13 @@
   </xs:group>
   <xs:complexType name="AnnaIsikuKvalifikatsioonidParing">
     <xs:sequence>
-      <xs:choice id="AsjaNRViitenumberChoice">
+      <xs:choice etoimik:name="AsjaNRViitenumberChoice">
         <xs:element name="AsjaNR" type="xs:string"/>
         <xs:element name="Viitenumber" type="xs:string"/>
       </xs:choice>
-      <xs:choice id="IsikuAndmedVõiIsikukoodChoice">
+      <xs:choice etoimik:name="IsikuAndmedVõiIsikukoodChoice">
         <xs:element name="Isikukood" type="xs:string"/>
-        <xs:sequence id="IsikuAndmed">
+        <xs:sequence etoimik:name="IsikuAndmed">
           <xs:element name="IsikuEesnimi" type="xs:string"/>
           <xs:element name="IsikuNimi" type="xs:string"/>
           <xs:element name="IsikuSynniKP" type="xs:date"/>
