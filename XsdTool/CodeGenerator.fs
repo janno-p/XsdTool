@@ -204,16 +204,17 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
                                                           [| CodeAssignStatement(CodeVariableReferenceExpression(choiceVarName), createChoice) :> CodeStatement |],
                                                           [| buildDeserializeStatements xs |])
                        | :? XmlSchemaSequence as sequence ->
+                            let className = getClassName sequence
                             let firstElement = sequence.Items.[0] :?> XmlSchemaElement
                             let statements: seq<CodeStatement> = seq {
-                                let seqType = CodeTypeReference(sequence.Id)
+                                let seqType = CodeTypeReference(className)
                                 yield upcast CodeVariableDeclarationStatement(seqType, "x", CodeObjectCreateExpression(seqType))
                                 for item in sequence.Items do
                                     match item with
                                     | :? XmlSchemaElement as element ->
                                         yield upcast CodeAssignStatement(CodePropertyReferenceExpression(CodeVariableReferenceExpression("x"), element.Name), CodeMethodInvokeExpression(varReader, mapMethod element.SchemaTypeName))
                                     | _ -> failwith <| sprintf "Oh noes: %O" item
-                                let createChoice = CodeMethodInvokeExpression(CodeTypeReferenceExpression(choiceType.Name), sprintf "New%s" sequence.Id, CodeVariableReferenceExpression("x"))
+                                let createChoice = CodeMethodInvokeExpression(CodeTypeReferenceExpression(choiceType.Name), sprintf "New%s" className, CodeVariableReferenceExpression("x"))
                                 yield upcast CodeAssignStatement(CodeVariableReferenceExpression(choiceVarName), createChoice)
                             }
                             upcast CodeConditionStatement(CodeBinaryOperatorExpression(expReaderLocalName, CodeBinaryOperatorType.IdentityEquality, CodePrimitiveExpression(firstElement.Name)),
