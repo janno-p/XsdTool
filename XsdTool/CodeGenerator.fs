@@ -222,6 +222,10 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
 
     newMembers
 
+let addParameter name (tp: System.Type) (m: CodeMemberMethod) =
+    m.Parameters.Add(CodeParameterDeclarationExpression(tp, name)) |> ignore
+    m
+
 let createSerializationMethod (response: XmlSchemaElement) (schema: XmlSchema) =
     let responseType = schema |> findComplexType response.SchemaTypeName
 
@@ -247,8 +251,10 @@ let createSerializationMethod (response: XmlSchemaElement) (schema: XmlSchema) =
     let codeType = CodeTypeReference(realType)
 
     let serializeMethod = CodeMemberMethod(Name="Serialize")
-    serializeMethod.Parameters.Add(serializeXmlWriterParameter) |> ignore
-    serializeMethod.Parameters.Add(serializeObjParameter) |> ignore
+    serializeMethod |> addParameter "writer" typeof<XmlWriter>
+                    |> addParameter "name" typeof<string>
+                    |> addParameter "obj" typeof<obj>
+                    |> ignore
     serializeMethod.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
 
     serializeMethod.Statements.Add(CodeVariableDeclarationStatement(codeType, "value", CodeCastExpression(codeType, CodeVariableReferenceExpression("obj")))) |> ignore

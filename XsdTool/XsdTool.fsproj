@@ -32,6 +32,7 @@
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft SDKs\F#\3.1\Framework\v4.0\Microsoft.FSharp.Targets" />
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="Configuration.fs" />
     <Compile Include="CreateXmlReaderExtensions.fs" />
     <Compile Include="CodeGenerator.fs" />
     <Compile Include="Program.fs" />
@@ -57,5 +58,6 @@
     <Reference Include="SharpYaml">
       <HintPath>..\packages\FSharp.Configuration.0.4.3\lib\net40\SharpYaml.dll</HintPath>
     </Reference>
+    <Reference Include="System.Configuration" />
   </ItemGroup>
 </Project>

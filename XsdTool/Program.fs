@@ -4,17 +4,21 @@ open Microsoft.CSharp
 open System
 open System.CodeDom
 open System.CodeDom.Compiler
+open System.Configuration
 open System.IO
 open System.Reflection
 open System.Text
 open XsdTool.CodeGenerator
+open XsdTool.Configuration
 
 type Settings = FSharp.Configuration.AppSettings<"App.config">
+
+let assembliesConfig = unbox<DtoAssemblies>(ConfigurationManager.GetSection "DtoAssemblies")
 
 AppDomain.CurrentDomain.add_AssemblyResolve(fun _ args ->
     let assemblyName = AssemblyName(args.Name)
     let expectedName = sprintf "%s.dll" assemblyName.Name
-    let expectedLocation = Path.Combine(Settings.ProbingPath, expectedName)
+    let expectedLocation = Path.Combine(assembliesConfig.probingPath, expectedName)
     match File.Exists(expectedLocation) with
     | true -> Assembly.LoadFrom(expectedLocation)
     | _ -> null)
