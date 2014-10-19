@@ -7,6 +7,9 @@ open System.Reflection
 open System.Xml
 open System.Xml.Schema
 open System.Xml.Serialization
+open XsdTool
+open XsdTool.Code
+open XsdTool.Xsd
 
 let settings = XmlReaderSettings()
 settings.ValidationEventHandler.Add(fun e -> eprintfn "%s" e.Message)
@@ -73,10 +76,6 @@ let getClassName (o: XmlSchemaObject) =
         | Some attr -> attr.Value
         | _ -> failwith <| sprintf "Sequence element has no name element."
     | _ -> failwith <| sprintf "Unhandeled XmlSchemaObject: %O" (o.GetType())
-
-let addParameter name (tp: System.Type) (m: CodeMemberMethod) =
-    m.Parameters.Add(CodeParameterDeclarationExpression(tp, name)) |> ignore
-    m
 
 let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) =
     let variableIndex = ref 1
@@ -239,9 +238,6 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
 let createSerializationMethod (response: XmlSchemaElement) (schema: XmlSchema) =
     let responseType = schema |> findComplexType response.SchemaTypeName
 
-    let serializeXmlWriterParameter = CodeParameterDeclarationExpression(typeof<XmlWriter>, "writer")
-    let serializeObjParameter = CodeParameterDeclarationExpression(typeof<obj>, "obj")
-
     let dtoType =
         match responseType.UnhandledAttributes |> Array.tryFind (fun a -> a.NamespaceURI = nsET && a.LocalName = "type") with
         | Some typeName -> typeName.Value
@@ -334,9 +330,12 @@ let BuildCodeUnit assemblyNamespace schemaFile =
         targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
         targetClass.TypeAttributes <- TypeAttributes.Public ||| TypeAttributes.Sealed
 
+        let xsd = XsdDetails.FromSchema(schema)
+        Serialization.CreateMethod response xsd |> targetClass.Members.Add |> ignore
+
         let codeNamespace = CodeNamespace(assemblyNamespace)
         codeNamespace.Types.Add(targetClass) |> ignore
-        codeNamespace.Types.Add(XsdTool.CreateXmlReaderExtensions.createClass()) |> ignore
+        codeNamespace.Types.Add(CreateXmlReaderExtensions.createClass()) |> ignore
 
         let codeCompileUnit = CodeCompileUnit()
         codeCompileUnit.Namespaces.Add(codeNamespace) |> ignore
