@@ -52,7 +52,7 @@ let private createMoveToNextElementMethod () =
 
 let createClass () =
     let targetClass = CodeTypeDeclaration("XmlReaderExtensions", IsClass=true, Attributes=MemberAttributes.Public)
-    targetClass.StartDirectives.Add(CodeRegionDirective(CodeRegionMode.Start, sprintf "%s\tstatic" System.Environment.NewLine)) |> ignore
+    targetClass.StartDirectives.Add(CodeRegionDirective(CodeRegionMode.Start, sprintf "%s    static" System.Environment.NewLine)) |> ignore
     targetClass.EndDirectives.Add(CodeRegionDirective(CodeRegionMode.End, "")) |> ignore
     targetClass.Members.Add(createMoveToNextElementMethod()) |> ignore
     targetClass.Members.Add(createReadStringExt()) |> ignore

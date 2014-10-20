@@ -7,12 +7,14 @@ open System.Text
 open System.Xml.Serialization
 
 type DtoAssemblies () =
-    [<DefaultValue>] val mutable assembly: string []
+    [<DefaultValue>] val mutable assembly: string
     [<DefaultValue>] val mutable probingPath: string
+    [<DefaultValue>] val mutable xmlNamespace: string
+    [<DefaultValue>] val mutable assemblyNamespaces: string[]
 
 type ConfigSectionHandler () =
     interface IConfigurationSectionHandler with
-        member this.Create(parent, configContext, section) =
+        member __.Create(_, _, section) =
             let configXml = section.SelectSingleNode("//DtoAssemblies").OuterXml
             if String.IsNullOrEmpty(configXml) then null
             else

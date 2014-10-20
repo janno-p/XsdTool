@@ -10,6 +10,7 @@ open System.Reflection
 open System.Text
 open XsdTool.CodeGenerator
 open XsdTool.Configuration
+open XsdTool.Xsd
 
 type Settings = FSharp.Configuration.AppSettings<"App.config">
 
@@ -38,7 +39,11 @@ let compileAssembly (codeUnits: CodeCompileUnit []) (codeProvider: #CodeDomProvi
 [<EntryPoint>]
 let main _ =
     let path = Path.GetFullPath(match Settings.XsdSearchPath with | null | "" -> "." | path -> path)
-    let codeUnits = Directory.GetFiles(path, "*.xsd") |> Array.choose (BuildCodeUnit Settings.AssemblyNamespace)
+
+    let assembly = AssemblyDetails.FromConfig(assembliesConfig)
+
+    let codeUnits = Directory.GetFiles(path, "*.xsd")
+                    |> Array.choose (BuildCodeUnit Settings.AssemblyNamespace assembly)
 
     use codeProvider = new CSharpCodeProvider()
 
