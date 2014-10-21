@@ -10,6 +10,7 @@ open System.Reflection
 open System.Text
 open XsdTool.CodeGenerator
 open XsdTool.Configuration
+open XsdTool.ExtensionsBuilder
 open XsdTool.Xsd
 
 type Settings = FSharp.Configuration.AppSettings<"App.config">
@@ -24,16 +25,15 @@ AppDomain.CurrentDomain.add_AssemblyResolve(fun _ args ->
     | true -> Assembly.LoadFrom(expectedLocation)
     | _ -> null)
 
-let printCode (codeUnits: CodeCompileUnit []) (codeProvider: #CodeDomProvider) =
-    codeUnits
-    |> Array.iter (fun u -> let sb = StringBuilder()
-                            use writer = new StringWriter(sb)
-                            codeProvider.GenerateCodeFromCompileUnit(u, writer, CodeGeneratorOptions())
-                            printfn "%s" (sb.ToString()))
+let printCode (codeUnit: CodeCompileUnit) (codeProvider: #CodeDomProvider) =
+    let sb = StringBuilder()
+    use writer = new StringWriter(sb)
+    codeProvider.GenerateCodeFromCompileUnit(codeUnit, writer, CodeGeneratorOptions())
+    printfn "%s" (sb.ToString())
 
-let compileAssembly (codeUnits: CodeCompileUnit []) (codeProvider: #CodeDomProvider) =
+let compileAssembly (codeUnit: CodeCompileUnit) (codeProvider: #CodeDomProvider) =
     let parameters = CompilerParameters(GenerateExecutable=false, OutputAssembly=Settings.AssemblyName)
-    let results = codeProvider.CompileAssemblyFromDom(parameters, codeUnits)
+    let results = codeProvider.CompileAssemblyFromDom(parameters, codeUnit)
     [for str in results.Output -> str] |> Seq.iter (printfn "%s")
 
 [<EntryPoint>]
@@ -42,13 +42,24 @@ let main _ =
 
     let assembly = AssemblyDetails.FromConfig(assembliesConfig)
 
-    let codeUnits = Directory.GetFiles(path, "*.xsd")
-                    |> Array.choose (BuildCodeUnit Settings.AssemblyNamespace assembly)
+    let codeCompileUnit = CodeCompileUnit()
+    codeCompileUnit.ReferencedAssemblies.Add("System.Xml.dll") |> ignore
+    codeCompileUnit.ReferencedAssemblies.Add(sprintf "%s\%s.dll" assembliesConfig.probingPath "Etoimik.Xtee") |> ignore
+    codeCompileUnit.ReferencedAssemblies.Add(sprintf "%s\%s.dll" assembliesConfig.probingPath assembliesConfig.assembly) |> ignore
+
+    let extensionsNamespace = CodeNamespace(sprintf "%s.Ext" Settings.AssemblyNamespace)
+    extensionsNamespace.Types.Add(XmlReader.CreateExtensionClass()) |> ignore
+    extensionsNamespace.Types.Add(XmlWriter.CreateExtensionClass()) |> ignore
+    codeCompileUnit.Namespaces.Add(extensionsNamespace) |> ignore
+
+    Directory.GetFiles(path, "*.xsd")
+    |> Array.choose (BuildCodeNamespace Settings.AssemblyNamespace assembly)
+    |> Array.iter (codeCompileUnit.Namespaces.Add >> ignore)
 
     use codeProvider = new CSharpCodeProvider()
 
-    let execute = printCode codeUnits
-    //let execute = compileAssembly codeUnits
+    let execute = printCode codeCompileUnit
+    let execute = compileAssembly codeCompileUnit
 
     codeProvider |> execute
 

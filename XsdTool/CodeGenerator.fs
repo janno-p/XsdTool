@@ -232,7 +232,7 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
 
     newMembers
 
-let BuildCodeUnit assemblyNamespace assembly schemaFile =
+let BuildCodeNamespace assemblyNamespace assembly schemaFile =
     let schema = openSchema schemaFile
     match getRequestResponse schema with
     | Some(request, response) ->
@@ -247,11 +247,7 @@ let BuildCodeUnit assemblyNamespace assembly schemaFile =
 
         let codeNamespace = CodeNamespace(assemblyNamespace)
         codeNamespace.Types.Add(targetClass) |> ignore
-        codeNamespace.Types.Add(CreateXmlReaderExtensions.createClass()) |> ignore
+        codeNamespace.Imports.Add(CodeNamespaceImport(sprintf "%s.Ext" assemblyNamespace))
 
-        let codeCompileUnit = CodeCompileUnit()
-        codeCompileUnit.Namespaces.Add(codeNamespace) |> ignore
-        codeCompileUnit.ReferencedAssemblies.Add("System.Xml.dll") |> ignore
-
-        Some codeCompileUnit
+        Some codeNamespace
     | _ -> None

@@ -35,7 +35,7 @@
     <Compile Include="Configuration.fs" />
     <Compile Include="Code.fs" />
     <Compile Include="Xsd.fs" />
-    <Compile Include="CreateXmlReaderExtensions.fs" />
+    <Compile Include="ExtensionsBuilder.fs" />
     <Compile Include="Serialization.fs" />
     <Compile Include="CodeGenerator.fs" />
     <Compile Include="Program.fs" />

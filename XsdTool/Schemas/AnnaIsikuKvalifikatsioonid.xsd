@@ -97,7 +97,7 @@
   </xs:complexType>
   <xs:complexType name="ToiminguOsaline" etoimik:type="etoimik:ToiminguOsaline">
     <xs:sequence>
-      <xs:element name="FyysilineIsik" type="tns:FyysilineIsik" nillable="true"/>
+      <xs:element name="Isik" type="tns:FyysilineIsik" nillable="true"/>
       <xs:element name="Sanktsioonid" type="tns:Sanktsioonid" nillable="true"/>
     </xs:sequence>
   </xs:complexType>
@@ -119,8 +119,8 @@
       <xs:element name="AlaLiikKL" type="xs:long" nillable="true"/>
       <xs:element name="LiikKL" type="xs:long"/>
       <xs:element name="ObjektID" type="xs:long"/>
-      <xs:element name="ToiminguOsalised" type="tns:ToiminguOsalised" nillable="true"/>
-      <xs:element name="Alused" type="tns:SeaduseSatted" nillable="true"/>
+      <xs:element name="Toiminguosalised" type="tns:ToiminguOsalised" nillable="true"/>
+      <xs:element name="Alus" type="tns:SeaduseSatted" nillable="true"/>
     </xs:sequence>
   </xs:complexType>
   <xs:complexType name="Toimingud">
