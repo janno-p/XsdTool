@@ -58,7 +58,7 @@ let main _ =
 
     use codeProvider = new CSharpCodeProvider()
 
-    let execute = printCode codeCompileUnit
+    //let execute = printCode codeCompileUnit
     let execute = compileAssembly codeCompileUnit
 
     codeProvider |> execute

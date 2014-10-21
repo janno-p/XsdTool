@@ -67,26 +67,86 @@ module XmlWriter =
 
     let private createWriteStringExtMethod () =
         let meth = createXmlWriterExtensionMethod "WriteStringExt"
-        meth.Parameters.Add(CodeParameterDeclarationExpression(typeof<string>, "name")) |> ignore
-        meth.Parameters.Add(CodeParameterDeclarationExpression(typeof<obj>, "value")) |> ignore
+        meth |> addParameter "name" typeof<string>
+             |> addParameter "value" typeof<obj>
+             |> ignore
+        let statements : CodeStatement[] = [|
+            invoke (variable "value") "ToString" [] |> declareVariable typeof<string> "strValue"
+            CodeConditionStatement(CodeBinaryOperatorExpression(CodeBinaryOperatorExpression(invoke (variable "strValue") "Contains" [primitive "&"],
+                                                                                             CodeBinaryOperatorType.BooleanOr,
+                                                                                             invoke (variable "strValue") "Contains" [primitive "<"]),
+                                                                CodeBinaryOperatorType.BooleanOr,
+                                                                invoke (variable "strValue") "Contains" [primitive ">"]),
+                                   [| invoke (variable "writer") "WriteCData" [variable "strValue"] |> asStatement |],
+                                   [| invoke (variable "writer") "WriteValue" [variable "strValue"] |> asStatement |])
+        |]
+        meth.Statements.Add(invoke (variable "writer") "WriteStartElement" [variable "name"]) |> ignore
+        meth.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(variable "value",
+                                                                                CodeBinaryOperatorType.IdentityEquality,
+                                                                                primitive null),
+                                                   [| invoke (variable "writer") "WriteNilAttributeExt" [] |> asStatement |],
+                                                   statements)) |> ignore
+        meth.Statements.Add(invoke (variable "writer") "WriteEndElement" []) |> ignore
         meth
 
     let private createWriteLongExtMethod () =
         let meth = createXmlWriterExtensionMethod "WriteLongExt"
-        meth.Parameters.Add(CodeParameterDeclarationExpression(typeof<string>, "name")) |> ignore
-        meth.Parameters.Add(CodeParameterDeclarationExpression(typeof<obj>, "value")) |> ignore
+        meth |> addParameter "name" typeof<string>
+             |> addParameter "value" typeof<obj>
+             |> ignore
+        let statements : CodeStatement[] = [|
+            [ invoke (CodeTypeReferenceExpression typeof<System.Convert>) "ToInt64" [variable "value"] :> CodeExpression ]
+            |> invoke (variable "writer") "WriteValue" 
+            |> asStatement
+        |]
+        meth.Statements.Add(invoke (variable "writer") "WriteStartElement" [variable "name"]) |> ignore
+        meth.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(variable "value",
+                                                                                CodeBinaryOperatorType.IdentityEquality,
+                                                                                primitive null),
+                                                   [| invoke (variable "writer") "WriteNilAttributeExt" [] |> asStatement |],
+                                                   statements)) |> ignore
+        meth.Statements.Add(invoke (variable "writer") "WriteEndElement" []) |> ignore
         meth
 
     let private createWriteDateExtMethod () =
         let meth = createXmlWriterExtensionMethod "WriteDateExt"
-        meth.Parameters.Add(CodeParameterDeclarationExpression(typeof<string>, "name")) |> ignore
-        meth.Parameters.Add(CodeParameterDeclarationExpression(typeof<obj>, "value")) |> ignore
+        meth |> addParameter "name" typeof<string>
+             |> addParameter "value" typeof<obj>
+             |> ignore
+        let statements : CodeStatement[] = [|
+            invoke (CodeTypeReferenceExpression(typeof<System.Convert>)) "ToDateTime" [variable "value"]
+            |> declareVariable typeof<System.DateTime> "dateValue"
+
+            [ invoke (CodeTypeReferenceExpression typeof<System.Xml.XmlConvert>) "ToString" [variable "dateValue"; primitive "yyyy-MM-dd"] :> CodeExpression ]
+            |> invoke (variable "writer") "WriteValue" 
+            |> asStatement
+        |]
+        meth.Statements.Add(invoke (variable "writer") "WriteStartElement" [variable "name"]) |> ignore
+        meth.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(variable "value",
+                                                                                CodeBinaryOperatorType.IdentityEquality,
+                                                                                primitive null),
+                                                   [| invoke (variable "writer") "WriteNilAttributeExt" [] |> asStatement |],
+                                                   statements)) |> ignore
+        meth.Statements.Add(invoke (variable "writer") "WriteEndElement" []) |> ignore
         meth
 
     let private createWriteDateTimeExtMethod () =
         let meth = createXmlWriterExtensionMethod "WriteDateTimeExt"
-        meth.Parameters.Add(CodeParameterDeclarationExpression(typeof<string>, "name")) |> ignore
-        meth.Parameters.Add(CodeParameterDeclarationExpression(typeof<obj>, "value")) |> ignore
+        meth |> addParameter "name" typeof<string>
+             |> addParameter "value" typeof<obj>
+             |> ignore
+        let statements : CodeStatement[] = [|
+            [ invoke (CodeTypeReferenceExpression typeof<System.Convert>) "ToDateTime" [variable "value"] :> CodeExpression ]
+            |> invoke (variable "writer") "WriteValue" 
+            |> asStatement
+        |]
+        meth.Statements.Add(invoke (variable "writer") "WriteStartElement" [variable "name"]) |> ignore
+        meth.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(variable "value",
+                                                                                CodeBinaryOperatorType.IdentityEquality,
+                                                                                primitive null),
+                                                   [| invoke (variable "writer") "WriteNilAttributeExt" [] |> asStatement |],
+                                                   statements)) |> ignore
+        meth.Statements.Add(invoke (variable "writer") "WriteEndElement" []) |> ignore
         meth
 
     let CreateExtensionClass () =

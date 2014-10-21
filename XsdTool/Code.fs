@@ -2,6 +2,7 @@
 
 open System
 open System.CodeDom
+open System.Reflection
 
 let addParameter name (tp: Type) (m: CodeMemberMethod) =
     m.Parameters.Add(CodeParameterDeclarationExpression(tp, name)) |> ignore
@@ -17,7 +18,7 @@ let prop target name = CodePropertyReferenceExpression(target, name)
 let primitive value = CodePrimitiveExpression(value)
 
 let extensionsClass name =
-    let targetClass = CodeTypeDeclaration(name, IsClass=true, Attributes=MemberAttributes.FamilyAndAssembly)
+    let targetClass = CodeTypeDeclaration(name, IsClass=true, TypeAttributes=TypeAttributes.NestedFamANDAssem)
     targetClass.StartDirectives.Add(CodeRegionDirective(CodeRegionMode.Start, sprintf "%s    static" System.Environment.NewLine)) |> ignore
     targetClass.EndDirectives.Add(CodeRegionDirective(CodeRegionMode.End, "")) |> ignore
     targetClass
