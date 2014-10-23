@@ -10,22 +10,20 @@ type ComplexTypeContext =
     | SimpleContext of XmlSchemaComplexType
     | ArrayContext of XmlSchemaComplexType * System.Type * string * string
 
-let CreateMethod (xsd: XsdDetails) (assembly: AssemblyDetails) (response: XmlSchemaElement) =
+let CreateRequestMethod (xsd: XsdDetails) (assembly: AssemblyDetails) (response: XmlSchemaElement) =
+    CodeMemberMethod()
+
+let CreateResponseMethod (xsd: XsdDetails) (assembly: AssemblyDetails) (response: XmlSchemaElement) =
     let responseType = xsd.GetSchemaType(response.SchemaTypeName) :?> XmlSchemaComplexType
+    let codeType = assembly.GetRuntimeType(responseType)
 
     let meth = CodeMemberMethod(Name="Serialize", Attributes=(MemberAttributes.Public ||| MemberAttributes.Static))
-
-    meth |> addParameter "writer" typeof<XmlWriter>
-         |> addParameter "name" typeof<string>
-         |> addParameter "obj" typeof<obj>
-         |> ignore
-
-    let codeType = assembly.GetRuntimeType(responseType)
+               |> addParameter "writer" typeof<XmlWriter>
+               |> addParameter "name" typeof<string>
+               |> addParameter "obj" codeType
 
     let addStatement (s: CodeStatement) = meth.Statements.Add(s) |> ignore
     let mapType' = mapType xsd
-
-    addStatement (variable "obj" |> castVariable codeType |> declareVariable codeType "value0")
 
     let nextVariableName =
         let variableCounter = ref 1
@@ -92,7 +90,7 @@ let CreateMethod (xsd: XsdDetails) (assembly: AssemblyDetails) (response: XmlSch
         yield invoke (variable "writer") "WriteEndElement" [] |> asStatement
     }
 
-    buildComplexTypeStatements (variable "value0") (variable "name") (SimpleContext responseType)
+    buildComplexTypeStatements (variable "obj") (variable "name") (SimpleContext responseType)
     |> Seq.iter addStatement
 
     meth

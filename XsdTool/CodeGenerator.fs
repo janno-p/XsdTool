@@ -123,10 +123,9 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
             choiceType.Members.Add(CodeMemberField(tpRef, name, Attributes=MemberAttributes.Private)) |> ignore)
 
         let createPropertyMethods name (tpRef: CodeTypeReference) i =
-            let initMethod = CodeMemberMethod(Name=(sprintf "New%s" name))
+            let initMethod = CodeMemberMethod(Name=(sprintf "New%s" name), Attributes=(MemberAttributes.Static ||| MemberAttributes.Public))
             initMethod.ReturnType <- CodeTypeReference(choiceType.Name)
             initMethod.Parameters.Add(CodeParameterDeclarationExpression(tpRef, "value")) |> ignore
-            initMethod.Attributes <- MemberAttributes.Static ||| MemberAttributes.FamilyAndAssembly
             initMethod.Statements.Add(CodeMethodReturnStatement(CodeObjectCreateExpression(choiceType.Name, CodeFieldReferenceExpression(CodeTypeReferenceExpression("Tag"), name), CodeVariableReferenceExpression("value")))) |> ignore
             let tryMethod = CodeMemberMethod(Name=(sprintf "TryGet%s" name), Attributes=MemberAttributes.Public)
             tryMethod.ReturnType <- CodeTypeReference(typeof<bool>)
@@ -241,7 +240,12 @@ let BuildCodeNamespace assemblyNamespace assembly schemaFile =
         let targetClass = CodeTypeDeclaration(schema.Id, IsClass=true)
         targetClass.Members.Add(new CodeConstructor(Attributes=MemberAttributes.Private)) |> ignore;
         createDeserializationMethod request schema |> Seq.iter (targetClass.Members.Add >> ignore)
-        response |> Serialization.CreateMethod xsd assembly |> targetClass.Members.Add |> ignore
+
+        let addToTargetClass = targetClass.Members.Add >> ignore
+
+        request |> Serialization.CreateRequestMethod xsd assembly |> addToTargetClass
+        response |> Serialization.CreateResponseMethod xsd assembly |> addToTargetClass
+
         targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
         targetClass.TypeAttributes <- TypeAttributes.Public ||| TypeAttributes.Sealed
 
