@@ -1,6 +1,7 @@
 ﻿module XsdTool.ServiceBuilder
 
 open System.CodeDom
+open System.Reflection
 open System.Xml
 open System.Xml.Schema
 open XsdTool.Code
@@ -40,7 +41,7 @@ let ParseServiceDetails serviceName (xsd: XsdDetails) (assembly: AssemblyDetails
     let rec getContainedElements (o: XmlSchemaObject) = seq {
         let convertElement (element: XmlSchemaElement) =
             match mapType xsd element.SchemaTypeName with
-            | SimpleType (tp, writeMethod) -> Primitive(element.Name, tp, writeMethod)
+            | SimpleType (tp, suffix) -> Primitive(element.Name, tp, suffix)
             | ComplexType schemaType ->
                 match getArrayElementType schemaType xsd with
                 | Some (arrTp, itemName) -> Array(element.Name, Entity(itemName, assembly.GetRuntimeType(arrTp), getContainedElements arrTp.Particle |> Seq.toList))
@@ -201,6 +202,8 @@ module Serialization =
     let BuildMethods (serviceDetails: ServiceDetails) =
         let nextVariableName = buildVariableNameGenerator()
 
+        let methodName sfx = sprintf "Write%s" sfx
+
         let rec buildStatements (argExp: ExpType) (arg: Element) = seq<CodeStatement> {
             match arg with
             | Choice (typeName, elements) ->
@@ -212,11 +215,11 @@ module Serialization =
                     | [] -> [||]
                     | e :: es ->
                         match e with
-                        | Primitive (name, sysType, writeMethod) ->
+                        | Primitive (name, sysType, suffix) ->
                             let variableName = nextVariableName()
                             [| CodeVariableDeclarationStatement(sysType, variableName) :> CodeStatement
                                CodeConditionStatement(invoke exp (sprintf "TryGet%s" name) [variable variableName |> asOutParam],
-                                                      [| invoke (variable "writer") writeMethod [primitive name; variable variableName] |> asStatement |],
+                                                      [| invoke (variable "writer") (methodName suffix) [primitive name; variable variableName] |> asStatement |],
                                                       elementsToStatements es) :> CodeStatement |]
                         | ChoiceEntity (typeName, elements) ->
                             let variableName = nextVariableName()
@@ -228,9 +231,9 @@ module Serialization =
                 yield upcast CodeConditionStatement(equals exp (primitive null),
                                                     [| throwException typeof<System.ArgumentNullException> [primitive typeName] |],
                                                     elementsToStatements elements)
-            | Primitive (name, sysType, writeMethod) ->
+            | Primitive (name, sysType, suffix) ->
                 let exp =  match argExp with | Top exp -> exp | Node exp -> prop exp name
-                yield invoke (variable "writer") writeMethod [primitive name; exp] |> asStatement
+                yield invoke (variable "writer") (methodName suffix) [primitive name; exp] |> asStatement
             | Array (name, element) ->
                 yield invoke (variable "writer") "WriteStartElement" [primitive name] |> asStatement
                 let makeCondition exp =
@@ -293,3 +296,95 @@ module Serialization =
             meth
 
         [ methodSerReq; methodSerRes ]
+
+module Types =
+    type private ElementType =
+        | SimpleType of System.Type
+        | ComplexType of string
+
+    let BuildTypes (serviceDetails: ServiceDetails) =
+        let rec collectAllTypes (element: Element) = seq<CodeTypeDeclaration> {
+            match element with
+            | Choice(typeName, elements) ->
+                let choiceType = CodeTypeDeclaration(typeName, IsClass=true)
+
+                let tagEnum = CodeTypeDeclaration("Tag", IsEnum=true, TypeAttributes=TypeAttributes.NestedPrivate)
+                choiceType.Members.Add(tagEnum) |> ignore
+                choiceType.Members.Add(CodeMemberField(CodeTypeReference("Tag"), "tag", Attributes=MemberAttributes.Private)) |> ignore
+
+                let members =
+                    let fieldTypes = System.Collections.Generic.HashSet<_>()
+                    let getIndex et =
+                        fieldTypes.Add(et) |> ignore
+                        fieldTypes |> Seq.findIndex (fun x -> x = et)
+                    let collectedMembers =
+                        elements |> List.map (fun el ->
+                            match el with
+                            | Primitive(name, sysType, _) -> (name, getIndex (SimpleType sysType), CodeTypeReference(sysType))
+                            | ChoiceEntity(typeName, elements) -> (typeName, getIndex (ComplexType typeName), CodeTypeReference(typeName))
+                            | _ -> failwith "Unsupported %O" el)
+                    fieldTypes |> Seq.iteri (fun i ft ->
+                        let name = sprintf "value%d" i
+                        let ctr = CodeConstructor(Attributes=MemberAttributes.Private)
+                        ctr.Parameters.Add(CodeParameterDeclarationExpression(CodeTypeReference("Tag"), "tag")) |> ignore
+                        let tp = match ft with | SimpleType tp -> CodeTypeReference(tp) | ComplexType name -> CodeTypeReference(name)
+                        ctr.Parameters.Add(CodeParameterDeclarationExpression(tp, "value")) |> ignore
+                        ctr.Statements.Add(CodeAssignStatement(CodeFieldReferenceExpression(CodeThisReferenceExpression(), "tag"), CodeVariableReferenceExpression("tag"))) |> ignore
+                        ctr.Statements.Add(CodeAssignStatement(CodeFieldReferenceExpression(CodeThisReferenceExpression(), name), CodeVariableReferenceExpression("value"))) |> ignore
+                        choiceType.Members.Add(ctr) |> ignore
+                        choiceType.Members.Add(CodeMemberField(tp, name, Attributes=MemberAttributes.Private)) |> ignore)
+                    collectedMembers
+
+                let matchMethod = CodeMemberMethod(Name="Match", Attributes=MemberAttributes.Public)
+                matchMethod.TypeParameters.Add(CodeTypeParameter("T")) |> ignore
+                matchMethod.ReturnType <- CodeTypeReference(CodeTypeParameter("T"))
+                choiceType.Members.Add(matchMethod) |> ignore
+
+                members |> List.iter (fun (name, index, tp) ->
+                    let initMethod = CodeMemberMethod(Name=(sprintf "New%s" name), Attributes=(MemberAttributes.Static ||| MemberAttributes.Public))
+                    initMethod.ReturnType <- CodeTypeReference(choiceType.Name)
+                    initMethod.Parameters.Add(CodeParameterDeclarationExpression(tp, "value")) |> ignore
+                    initMethod.Statements.Add(CodeMethodReturnStatement(CodeObjectCreateExpression(choiceType.Name, CodeFieldReferenceExpression(CodeTypeReferenceExpression("Tag"), name), CodeVariableReferenceExpression("value")))) |> ignore
+                    choiceType.Members.Add(initMethod) |> ignore
+
+                    let tryMethod = CodeMemberMethod(Name=(sprintf "TryGet%s" name), Attributes=MemberAttributes.Public)
+                    tryMethod.ReturnType <- CodeTypeReference(typeof<bool>)
+                    tryMethod.Parameters.Add(CodeParameterDeclarationExpression(tp, "value", Direction=FieldDirection.Out)) |> ignore
+                    tryMethod.Statements.Add(CodeAssignStatement(CodeVariableReferenceExpression("value"), CodePrimitiveExpression(null))) |> ignore
+                    tryMethod.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(CodeFieldReferenceExpression(CodeThisReferenceExpression(), "tag"),
+                                                                                                 CodeBinaryOperatorType.IdentityEquality,
+                                                                                                 CodePropertyReferenceExpression(CodeTypeReferenceExpression("Tag"), name)),
+                                                                    CodeAssignStatement(CodeVariableReferenceExpression("value"), CodeFieldReferenceExpression(CodeThisReferenceExpression(), sprintf "value%d" index)),
+                                                                    CodeMethodReturnStatement(CodePrimitiveExpression(true)))) |> ignore
+                    tryMethod.Statements.Add(CodeMethodReturnStatement(CodePrimitiveExpression(false))) |> ignore
+                    choiceType.Members.Add(tryMethod) |> ignore
+
+                    tagEnum.Members.Add(CodeMemberField("Tag", name)) |> ignore
+
+                    matchMethod.Parameters.Add(CodeParameterDeclarationExpression(CodeTypeReference("System.Func", tp, CodeTypeReference(CodeTypeParameter("T"))), sprintf "f%s" name)) |> ignore
+                    matchMethod.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(CodeFieldReferenceExpression(CodeThisReferenceExpression(), "tag"),
+                                                                                                   CodeBinaryOperatorType.IdentityEquality,
+                                                                                                   CodePropertyReferenceExpression(CodeTypeReferenceExpression("Tag"), name)),
+                                                                      CodeMethodReturnStatement(CodeMethodInvokeExpression(null, sprintf "f%s" name, CodeFieldReferenceExpression(CodeThisReferenceExpression(), sprintf "value%d" index))))) |> ignore
+                )
+
+                matchMethod.Statements.Add(CodeThrowExceptionStatement(CodeObjectCreateExpression(typeof<System.InvalidOperationException>))) |> ignore
+
+                yield! elements |> Seq.collect (fun el -> match el with | ChoiceEntity _ -> collectAllTypes el | _ -> Seq.empty)
+
+                yield choiceType
+            | ChoiceEntity(typeName, elements) ->
+                let entityType = CodeTypeDeclaration(typeName, IsClass=true)
+                elements |> List.iter (fun el ->
+                    match el with
+                    | Primitive(name, sysType, _) ->
+                        entityType.Members.Add(CodeMemberField(sysType, name, Attributes=MemberAttributes.Public)) |> ignore
+                    | _ -> failwithf "Unsupported element type %O" el
+                )
+                yield entityType
+            | _ -> ()
+        }
+
+        serviceDetails.Result :: serviceDetails.Parameters
+        |> Seq.collect (collectAllTypes)
+        |> Seq.toList

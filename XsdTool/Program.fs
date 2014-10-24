@@ -53,22 +53,25 @@ let BuildCodeNamespace assemblyNamespace assembly schemaFile =
         let serviceName = m.Groups.["serviceName"].Value
         let xsd = XsdDetails.FromSchema(schema)
 
-        let targetClass = CodeTypeDeclaration(schema.Id, IsClass=true)
+        let serviceNamespace = CodeNamespace(sprintf "%s.%s" assemblyNamespace serviceName)
+
+        let targetClass = CodeTypeDeclaration("Serializer", IsClass=true)
         targetClass.Members.Add(new CodeConstructor(Attributes=MemberAttributes.Private)) |> ignore;
 
         let serviceDetails = ParseServiceDetails serviceName xsd assembly
         serviceDetails |> Deserialization.BuildMethods
-                       //|> List.append (serviceDetails |> Serialization.BuildMethods)
+                       |> List.append (serviceDetails |> Serialization.BuildMethods)
                        |> List.iter (targetClass.Members.Add >> ignore)
 
         targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
         targetClass.TypeAttributes <- TypeAttributes.Public ||| TypeAttributes.Sealed
 
-        let codeNamespace = CodeNamespace(assemblyNamespace)
-        codeNamespace.Types.Add(targetClass) |> ignore
-        codeNamespace.Imports.Add(CodeNamespaceImport(sprintf "%s.Ext" assemblyNamespace))
+        serviceNamespace.Types.Add(targetClass) |> ignore
+        serviceDetails |> Types.BuildTypes |> List.iter (fun tp -> serviceNamespace.Types.Add(tp) |> ignore)
 
-        Some codeNamespace
+        serviceNamespace.Imports.Add(CodeNamespaceImport(sprintf "%s.Ext" assemblyNamespace))
+
+        Some serviceNamespace
     | _ ->
         printfn "Unable to extract service name from targetNamespace `%s` using base namespace `%s`." schemaTargetNamespace assembly.TargetNamespace
         None
@@ -81,7 +84,7 @@ let main _ =
 
     let codeCompileUnit = CodeCompileUnit()
     codeCompileUnit.ReferencedAssemblies.Add("System.Xml.dll") |> ignore
-    codeCompileUnit.ReferencedAssemblies.Add(Path.Combine(assembliesConfig.probingPath, "Etoimik.Xtee.dll")) |> ignore
+    //codeCompileUnit.ReferencedAssemblies.Add(Path.Combine(assembliesConfig.probingPath, "Etoimik.Xtee.dll")) |> ignore
     codeCompileUnit.ReferencedAssemblies.Add(Path.Combine(assembliesConfig.probingPath, sprintf "%s.dll"  assembliesConfig.assembly)) |> ignore
 
     let extensionsNamespace = CodeNamespace(sprintf "%s.Ext" Settings.AssemblyNamespace)
@@ -96,7 +99,7 @@ let main _ =
     use codeProvider = new CSharpCodeProvider()
 
     let execute = printCode codeCompileUnit
-    //let execute = compileAssembly codeCompileUnit
+    let execute = compileAssembly codeCompileUnit
 
     codeProvider |> execute
 

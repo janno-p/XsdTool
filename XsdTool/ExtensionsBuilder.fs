@@ -17,6 +17,17 @@ module XmlReader =
         |> addStatement (Some (invoke (CodeTypeReferenceExpression typeof<Convert>) "ToBoolean" [variable "value"])
                          |> returns)
 
+    let private createReadLongExt () =
+        createXmlReaderExtensionMethod "ReadLongExt" typeof<Nullable<int64>>
+        |> addStatement (primitive null |> declareVariable typeof<Nullable<int64>> "result")
+        |> addStatement (CodeConditionStatement(equals (prop (variable "reader") "IsEmptyElement") (primitive false),
+                                                [| invoke (variable "reader") "ReadString" [] |> declareVariable typeof<string> "value"
+                                                   CodeConditionStatement(invoke (typeOf typeof<string>) "IsNullOrEmpty" [variable "value"],
+                                                                          [| primitive null |> assign (variable "result") |],
+                                                                          [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodeMethodInvokeExpression(CodeTypeReferenceExpression("System.Xml.XmlConvert"), "ToInt64", CodeVariableReferenceExpression("value"))) :> CodeStatement |]) :> CodeStatement |]))
+        |> addStatement (invoke (variable "reader") "MoveToNextElement" [] |> asStatement)
+        |> addStatement (Some(variable "result") |> returns)
+
     let private createReadStringExt () =
         let meth = createXmlReaderExtensionMethod "ReadStringExt" typeof<string>
         meth.Statements.Add(CodeVariableDeclarationStatement(typeof<string>, "result", CodePrimitiveExpression(null))) |> ignore
@@ -37,6 +48,18 @@ module XmlReader =
                                                                 CodeConditionStatement(CodeMethodInvokeExpression(CodeTypeReferenceExpression(typeof<string>), "IsNullOrEmpty", CodeVariableReferenceExpression("value")),
                                                                                        [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodePrimitiveExpression(null)) :> CodeStatement |],
                                                                                        [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodePropertyReferenceExpression(CodeMethodInvokeExpression(CodeTypeReferenceExpression("System.Xml.XmlConvert"), "ToDateTimeOffset", CodeVariableReferenceExpression("value")), "DateTime")) :> CodeStatement |]) :> CodeStatement |])) |> ignore
+        meth.Statements.Add(CodeExpressionStatement(CodeMethodInvokeExpression(CodeVariableReferenceExpression("reader"), "MoveToNextElement"))) |> ignore
+        meth.Statements.Add(CodeMethodReturnStatement(CodeVariableReferenceExpression("result"))) |> ignore
+        meth
+
+    let private createReadDateExt () =
+        let meth = createXmlReaderExtensionMethod "ReadDateExt" typeof<Nullable<DateTime>>
+        meth.Statements.Add(CodeVariableDeclarationStatement(typeof<Nullable<DateTime>>, "result", CodePrimitiveExpression(null))) |> ignore
+        meth.Statements.Add(CodeConditionStatement(CodeBinaryOperatorExpression(CodePropertyReferenceExpression(CodeVariableReferenceExpression("reader"), "IsEmptyElement"), CodeBinaryOperatorType.IdentityEquality, CodePrimitiveExpression(false)),
+                                                             [| CodeVariableDeclarationStatement(typeof<string>, "value", CodeMethodInvokeExpression(CodeVariableReferenceExpression("reader"), "ReadString")) :> CodeStatement
+                                                                CodeConditionStatement(CodeMethodInvokeExpression(CodeTypeReferenceExpression(typeof<string>), "IsNullOrEmpty", CodeVariableReferenceExpression("value")),
+                                                                                       [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodePrimitiveExpression(null)) :> CodeStatement |],
+                                                                                       [| CodeAssignStatement(CodeVariableReferenceExpression("result"), CodePropertyReferenceExpression(CodeMethodInvokeExpression(CodeTypeReferenceExpression("System.Xml.XmlConvert"), "ToDateTimeOffset", CodeVariableReferenceExpression("value")), "Date")) :> CodeStatement |]) :> CodeStatement |])) |> ignore
         meth.Statements.Add(CodeExpressionStatement(CodeMethodInvokeExpression(CodeVariableReferenceExpression("reader"), "MoveToNextElement"))) |> ignore
         meth.Statements.Add(CodeMethodReturnStatement(CodeVariableReferenceExpression("result"))) |> ignore
         meth
@@ -63,6 +86,8 @@ module XmlReader =
         targetClass.Members.Add(createIsNilElementExt()) |> ignore
         targetClass.Members.Add(createReadStringExt()) |> ignore
         targetClass.Members.Add(createReadDateTimeExt()) |> ignore
+        targetClass.Members.Add(createReadDateExt()) |> ignore
+        targetClass.Members.Add(createReadLongExt()) |> ignore
         targetClass
 
 
