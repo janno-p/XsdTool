@@ -5,7 +5,17 @@ open System.CodeDom
 open XsdTool.Code
 
 module XmlReader =
-    let private createXmlReaderExtensionMethod name (tp: Type) = extensionMethod name (Some tp) (typeof<Xml.XmlReader>, "reader")
+    let private createXmlReaderExtensionMethod name (tp: Type) =
+        extensionMethod name (Some tp) (typeof<Xml.XmlReader>, "reader")
+
+    let private xsiNamespace = "http://www.w3.org/2001/XMLSchema-instance"
+
+    let private createIsNilElementExt () =
+        createXmlReaderExtensionMethod "IsNilElementExt" typeof<bool>
+        |> addStatement (invoke (variable "reader") "GetAttribute" [primitive "nil"; primitive xsiNamespace]
+                         |> declareVariable typeof<string> "value")
+        |> addStatement (Some (invoke (CodeTypeReferenceExpression typeof<Convert>) "ToBoolean" [variable "value"])
+                         |> returns)
 
     let private createReadStringExt () =
         let meth = createXmlReaderExtensionMethod "ReadStringExt" typeof<string>
@@ -50,6 +60,7 @@ module XmlReader =
     let CreateExtensionClass () =
         let targetClass = extensionsClass "XmlReaderExtensions"
         targetClass.Members.Add(createMoveToNextElementMethod()) |> ignore
+        targetClass.Members.Add(createIsNilElementExt()) |> ignore
         targetClass.Members.Add(createReadStringExt()) |> ignore
         targetClass.Members.Add(createReadDateTimeExt()) |> ignore
         targetClass
@@ -95,7 +106,7 @@ module XmlWriter =
              |> addParameter "value" typeof<obj>
              |> ignore
         let statements : CodeStatement[] = [|
-            [ invoke (CodeTypeReferenceExpression typeof<System.Convert>) "ToInt64" [variable "value"] :> CodeExpression ]
+            [ invoke (CodeTypeReferenceExpression typeof<System.Convert>) "ToInt64" [variable "value"] ]
             |> invoke (variable "writer") "WriteValue" 
             |> asStatement
         |]
@@ -117,7 +128,7 @@ module XmlWriter =
             invoke (CodeTypeReferenceExpression(typeof<System.Convert>)) "ToDateTime" [variable "value"]
             |> declareVariable typeof<System.DateTime> "dateValue"
 
-            [ invoke (CodeTypeReferenceExpression typeof<System.Xml.XmlConvert>) "ToString" [variable "dateValue"; primitive "yyyy-MM-dd"] :> CodeExpression ]
+            [ invoke (CodeTypeReferenceExpression typeof<System.Xml.XmlConvert>) "ToString" [variable "dateValue"; primitive "yyyy-MM-dd"] ]
             |> invoke (variable "writer") "WriteValue" 
             |> asStatement
         |]
@@ -136,7 +147,7 @@ module XmlWriter =
              |> addParameter "value" typeof<obj>
              |> ignore
         let statements : CodeStatement[] = [|
-            [ invoke (CodeTypeReferenceExpression typeof<System.Convert>) "ToDateTime" [variable "value"] :> CodeExpression ]
+            [ invoke (CodeTypeReferenceExpression typeof<System.Convert>) "ToDateTime" [variable "value"] ]
             |> invoke (variable "writer") "WriteValue" 
             |> asStatement
         |]

@@ -37,7 +37,6 @@
     <Compile Include="Xsd.fs" />
     <Compile Include="ExtensionsBuilder.fs" />
     <Compile Include="ServiceBuilder.fs" />
-    <Compile Include="CodeGenerator.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
     <None Include="packages.config" />

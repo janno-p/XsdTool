@@ -74,10 +74,10 @@ let (|XmlSchema|_|) (n: XmlQualifiedName): string option =
     else None
 
 let mapXmlSchemaType = function
-    | "string"   -> (typeof<string>, "WriteStringExt")
-    | "date"     -> (typeof<DateTime>, "WriteDateExt")
-    | "dateTime" -> (typeof<DateTime>, "WriteDateTimeExt")
-    | "long"     -> (typeof<int64>, "WriteLongExt")
+    | "string"   -> (typeof<string>, "StringExt")
+    | "date"     -> (typeof<DateTime>, "DateExt")
+    | "dateTime" -> (typeof<DateTime>, "DateTimeExt")
+    | "long"     -> (typeof<int64>, "LongExt")
     | name       -> failwithf "Unmapped Xml Schema type %s" name
 
 let mapType (xsd: XsdDetails) (qname: XmlQualifiedName) =

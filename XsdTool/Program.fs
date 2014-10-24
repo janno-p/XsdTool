@@ -8,9 +8,12 @@ open System.Configuration
 open System.IO
 open System.Reflection
 open System.Text
-open XsdTool.CodeGenerator
+open System.Text.RegularExpressions
+open System.Xml
+open System.Xml.Schema
 open XsdTool.Configuration
 open XsdTool.ExtensionsBuilder
+open XsdTool.ServiceBuilder
 open XsdTool.Xsd
 
 type Settings = FSharp.Configuration.AppSettings<"App.config">
@@ -35,6 +38,40 @@ let compileAssembly (codeUnit: CodeCompileUnit) (codeProvider: #CodeDomProvider)
     let parameters = CompilerParameters(GenerateExecutable=false, OutputAssembly=Settings.AssemblyName)
     let results = codeProvider.CompileAssemblyFromDom(parameters, codeUnit)
     [for str in results.Output -> str] |> Seq.iter (printfn "%s")
+
+let openSchema schemaFile =
+    let settings = XmlReaderSettings()
+    settings.ValidationEventHandler.Add(fun e -> eprintfn "%s" e.Message)
+    use reader = XmlReader.Create(File.OpenRead(schemaFile), settings)
+    XmlSchema.Read(reader, fun _ e -> eprintfn "%s" e.Message)
+
+let BuildCodeNamespace assemblyNamespace assembly schemaFile =
+    let schema = openSchema schemaFile
+    let schemaTargetNamespace = match schema.TargetNamespace with | null -> "" | x -> x
+    match Regex.Match(schemaTargetNamespace, sprintf "^%s/(?<serviceName>\\w+)$" assembly.TargetNamespace) with
+    | m when m.Success ->
+        let serviceName = m.Groups.["serviceName"].Value
+        let xsd = XsdDetails.FromSchema(schema)
+
+        let targetClass = CodeTypeDeclaration(schema.Id, IsClass=true)
+        targetClass.Members.Add(new CodeConstructor(Attributes=MemberAttributes.Private)) |> ignore;
+
+        let serviceDetails = ParseServiceDetails serviceName xsd assembly
+        serviceDetails |> Deserialization.BuildMethods
+                       //|> List.append (serviceDetails |> Serialization.BuildMethods)
+                       |> List.iter (targetClass.Members.Add >> ignore)
+
+        targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
+        targetClass.TypeAttributes <- TypeAttributes.Public ||| TypeAttributes.Sealed
+
+        let codeNamespace = CodeNamespace(assemblyNamespace)
+        codeNamespace.Types.Add(targetClass) |> ignore
+        codeNamespace.Imports.Add(CodeNamespaceImport(sprintf "%s.Ext" assemblyNamespace))
+
+        Some codeNamespace
+    | _ ->
+        printfn "Unable to extract service name from targetNamespace `%s` using base namespace `%s`." schemaTargetNamespace assembly.TargetNamespace
+        None
 
 [<EntryPoint>]
 let main _ =
