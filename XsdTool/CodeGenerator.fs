@@ -7,9 +7,9 @@ open System.Reflection
 open System.Text.RegularExpressions
 open System.Xml
 open System.Xml.Schema
-open XsdTool
 open XsdTool.Code
 open XsdTool.Xsd
+open XsdTool.ServiceBuilder
 
 let settings = XmlReaderSettings()
 settings.ValidationEventHandler.Add(fun e -> eprintfn "%s" e.Message)
@@ -243,9 +243,9 @@ let BuildCodeNamespace assemblyNamespace assembly schemaFile =
         let targetClass = CodeTypeDeclaration(schema.Id, IsClass=true)
         targetClass.Members.Add(new CodeConstructor(Attributes=MemberAttributes.Private)) |> ignore;
 
-        let serviceDetails = Serialization.ParseServiceDetails serviceName xsd assembly
+        let serviceDetails = ParseServiceDetails serviceName xsd assembly
         serviceDetails |> Serialization.BuildMethods
-        //               |> List.append (serviceDetails |> Deserialization.BuildMethods)
+                       |> List.append (serviceDetails |> Deserialization.BuildMethods)
                        |> List.iter (targetClass.Members.Add >> ignore)
 
         targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static

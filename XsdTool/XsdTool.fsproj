@@ -36,7 +36,7 @@
     <Compile Include="Code.fs" />
     <Compile Include="Xsd.fs" />
     <Compile Include="ExtensionsBuilder.fs" />
-    <Compile Include="Serialization.fs" />
+    <Compile Include="ServiceBuilder.fs" />
     <Compile Include="CodeGenerator.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />

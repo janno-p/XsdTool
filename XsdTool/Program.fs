@@ -44,8 +44,8 @@ let main _ =
 
     let codeCompileUnit = CodeCompileUnit()
     codeCompileUnit.ReferencedAssemblies.Add("System.Xml.dll") |> ignore
-    codeCompileUnit.ReferencedAssemblies.Add(sprintf "%s\%s.dll" assembliesConfig.probingPath "Etoimik.Xtee") |> ignore
-    codeCompileUnit.ReferencedAssemblies.Add(sprintf "%s\%s.dll" assembliesConfig.probingPath assembliesConfig.assembly) |> ignore
+    codeCompileUnit.ReferencedAssemblies.Add(Path.Combine(assembliesConfig.probingPath, "Etoimik.Xtee.dll")) |> ignore
+    codeCompileUnit.ReferencedAssemblies.Add(Path.Combine(assembliesConfig.probingPath, sprintf "%s.dll"  assembliesConfig.assembly)) |> ignore
 
     let extensionsNamespace = CodeNamespace(sprintf "%s.Ext" Settings.AssemblyNamespace)
     extensionsNamespace.Types.Add(XmlReader.CreateExtensionClass()) |> ignore
