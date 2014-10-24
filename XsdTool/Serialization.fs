@@ -66,6 +66,10 @@ let ParseServiceDetails serviceName (xsd: XsdDetails) (assembly: AssemblyDetails
     { Parameters = getContainedElements requestType.Particle |> Seq.toList
       Result = Entity("keha", responseSysType, getContainedElements responseType.Particle |> Seq.toList) }
 
+type ExpType = 
+    | Top of CodeExpression
+    | Node of CodeExpression
+
 let BuildMethods (serviceDetails: ServiceDetails) =
     let nextVariableName =
         let variableCounter = ref 1
@@ -75,9 +79,12 @@ let BuildMethods (serviceDetails: ServiceDetails) =
             result
         generateNextName
 
-    let rec buildStatements (argExp: CodeExpression) (arg: Element) = seq<CodeStatement> {
+    let rec buildStatements (argExp: ExpType) (arg: Element) = seq<CodeStatement> {
         match arg with
         | Choice (typeName, elements) ->
+            // TODO: Fix when nested choices are used
+            let exp = match argExp with | Top exp -> exp | Node exp -> exp
+
             let rec elementsToStatements (elements: Element list) =
                 match elements with
                 | [] -> [||]
@@ -86,36 +93,47 @@ let BuildMethods (serviceDetails: ServiceDetails) =
                     | Primitive (name, sysType, writeMethod) ->
                         let variableName = nextVariableName()
                         [| CodeVariableDeclarationStatement(sysType, variableName) :> CodeStatement
-                           CodeConditionStatement(invoke argExp (sprintf "TryGet%s" name) [variable variableName |> asOutParam],
+                           CodeConditionStatement(invoke exp (sprintf "TryGet%s" name) [variable variableName |> asOutParam],
                                                   [| invoke (variable "writer") writeMethod [primitive name; variable variableName] |> asStatement |],
                                                   elementsToStatements es) :> CodeStatement |]
                     | ChoiceEntity (typeName, elements) ->
                         let variableName = nextVariableName()
                         [| CodeVariableDeclarationStatement(CodeTypeReference(typeName), variableName) :> CodeStatement
-                           CodeConditionStatement(invoke argExp (sprintf "TryGet%s" typeName) [variable variableName |> asOutParam],
-                                                  elements |> Seq.collect (buildStatements (variable variableName)) |> Seq.toArray,
+                           CodeConditionStatement(invoke exp (sprintf "TryGet%s" typeName) [variable variableName |> asOutParam],
+                                                  elements |> Seq.collect (buildStatements (Node(variable variableName))) |> Seq.toArray,
                                                   elementsToStatements es) :> CodeStatement |]
                     | _ -> failwithf "Unhandled choice element %O" e
-            yield upcast CodeConditionStatement(equals argExp (primitive null),
+            yield upcast CodeConditionStatement(equals exp (primitive null),
                                                 [| throwException typeof<System.ArgumentNullException> [primitive typeName] |],
                                                 elementsToStatements elements)
         | Primitive (name, sysType, writeMethod) ->
-            yield invoke (variable "writer") writeMethod [primitive name; prop argExp name] |> asStatement
+            let exp =  match argExp with | Top exp -> exp | Node exp -> upcast prop exp name
+            yield invoke (variable "writer") writeMethod [primitive name; exp] |> asStatement
         | Array (name, element) ->
-            let variableName = nextVariableName()
-            // TODO :!!!
             yield invoke (variable "writer") "WriteStartElement" [primitive name] |> asStatement
-            yield upcast CodeConditionStatement(equals argExp (primitive null),
-                                                [| invoke (variable "writer") "WriteNilAttributeExt" [] |> asStatement |],
-                                                buildStatements argExp element |> Seq.toArray)
+            match argExp with
+            | Top exp -> ()
+            | Node exp ->
+                let variableName = nextVariableName()
+                // TODO :!!!
+
+                yield upcast CodeConditionStatement(equals exp (primitive null),
+                                                    [| invoke (variable "writer") "WriteNilAttributeExt" [] |> asStatement |],
+                                                    buildStatements argExp element |> Seq.toArray)
             yield invoke (variable "writer") "WriteEndElement" [] |> asStatement
         | Entity (name, sysType, elements) ->
-            let variableName = nextVariableName()
             yield invoke (variable "writer") "WriteStartElement" [primitive name] |> asStatement
-            yield upcast (prop argExp name |> castVariable sysType |> declareVariable sysType variableName)
-            yield upcast CodeConditionStatement(equals (variable variableName) (primitive null),
-                                                [| invoke (variable "writer") "WriteNilAttributeExt" [] |> asStatement |],
-                                                elements |> Seq.collect (buildStatements (variable variableName)) |> Seq.toArray)
+            match argExp with
+            | Top exp ->
+                yield upcast CodeConditionStatement(equals exp (primitive null),
+                                                    [| invoke (variable "writer") "WriteNilAttributeExt" [] |> asStatement |],
+                                                    elements |> Seq.collect (fun e -> buildStatements (Node(exp)) e) |> Seq.toArray)
+            | Node exp ->
+                let variableName = nextVariableName()
+                yield upcast (prop exp name |> castVariable sysType |> declareVariable sysType variableName)
+                yield upcast CodeConditionStatement(equals (variable variableName) (primitive null),
+                                                    [| invoke (variable "writer") "WriteNilAttributeExt" [] |> asStatement |],
+                                                    elements |> Seq.collect (buildStatements (Node(variable variableName))) |> Seq.toArray)
             yield invoke (variable "writer") "WriteEndElement" [] |> asStatement
         | _ -> failwithf "Unexpected type tree element %O" arg
     }
@@ -129,7 +147,7 @@ let BuildMethods (serviceDetails: ServiceDetails) =
         serviceDetails.Parameters |> List.iteri (fun i p ->
             let argName = sprintf "arg%d" (i + 1)
             meth.Parameters.Add(CodeParameterDeclarationExpression(getParameterRuntimeType p, argName)) |> ignore
-            buildStatements (variable argName) p
+            buildStatements (Node(variable argName)) p
             |> Seq.iter (fun s -> meth |> addStatement s)
         )
         meth |> addStatement (invoke (variable "writer") "WriteEndElement" [] |> asStatement)
@@ -139,15 +157,7 @@ let BuildMethods (serviceDetails: ServiceDetails) =
         let meth = CodeMemberMethod(Name="SerializeResponse", Attributes=(MemberAttributes.Public ||| MemberAttributes.Static))
                    |> addParameter "writer" typeof<XmlWriter>
         meth.Parameters.Add(CodeParameterDeclarationExpression(getParameterRuntimeType serviceDetails.Result, "vastus")) |> ignore
-        meth |> addStatement (invoke (variable "writer") "WriteStartElement" [primitive "keha"] |> asStatement)
-        match serviceDetails.Result with
-        | Entity (name, sysType, elements) ->
-            let argExp = variable "vastus"
-            meth |> addStatement (CodeConditionStatement(equals argExp (primitive null),
-                                                [| invoke (variable "writer") "WriteNilAttributeExt" [] |> asStatement |],
-                                                elements |> Seq.collect (fun e -> buildStatements argExp e) |> Seq.toArray))
-        | _ -> failwithf "Pole veel %O" serviceDetails.Result
-        meth |> addStatement (invoke (variable "writer") "WriteEndElement" [] |> asStatement)
+        serviceDetails.Result |> buildStatements (Top(variable "vastus")) |> Seq.iter (meth.Statements.Add >> ignore)
         meth
 
     [ methodSerReq; methodSerRes ]
