@@ -32,11 +32,11 @@
   </xs:group>
   <xs:complexType name="AnnaIsikuKvalifikatsioonidParing">
     <xs:sequence>
-      <xs:choice etoimik:name="AsjaNRViitenumberChoice">
+      <xs:choice etoimik:name="AsjaNR_Viitenumber">
         <xs:element name="AsjaNR" type="xs:string"/>
         <xs:element name="Viitenumber" type="xs:string"/>
       </xs:choice>
-      <xs:choice etoimik:name="IsikuAndmedVõiIsikukoodChoice">
+      <xs:choice etoimik:name="IsikuAndmed_Isikukood">
         <xs:element name="Isikukood" type="xs:string"/>
         <xs:sequence etoimik:name="IsikuAndmed">
           <xs:element name="IsikuEesnimi" type="xs:string"/>
@@ -148,6 +148,4 @@
       <xs:element name="Menetlused" type="tns:Menetlused" nillable="true"/>
     </xs:sequence>
   </xs:complexType>
-  <xs:element name="request" type="tns:AnnaIsikuKvalifikatsioonidParing"/>
-  <xs:element name="response" type="tns:AnnaIsikuKvalifikatsioonidVastus" nillable="true"/>
 </xs:schema>

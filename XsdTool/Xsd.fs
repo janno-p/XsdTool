@@ -65,7 +65,7 @@ type AssemblyDetails =
                   |> dict }
 
 type ElementType =
-    | SimpleType of string
+    | SimpleType of Type * string
     | ComplexType of XmlSchemaComplexType
 
 let (|XmlSchema|_|) (n: XmlQualifiedName): string option =
@@ -73,16 +73,16 @@ let (|XmlSchema|_|) (n: XmlQualifiedName): string option =
         Some n.Name
     else None
 
-let mapXmlSchemaTypeToMethod = function
-    | "string" -> "WriteStringExt"
-    | "date" -> "WriteDateExt"
-    | "dateTime" -> "WriteDateTimeExt"
-    | "long" -> "WriteLongExt"
-    | name -> failwithf "Unmapped XML Schema type %s" name
+let mapXmlSchemaType = function
+    | "string"   -> (typeof<string>, "WriteStringExt")
+    | "date"     -> (typeof<DateTime>, "WriteDateExt")
+    | "dateTime" -> (typeof<DateTime>, "WriteDateTimeExt")
+    | "long"     -> (typeof<int64>, "WriteLongExt")
+    | name       -> failwithf "Unmapped Xml Schema type %s" name
 
 let mapType (xsd: XsdDetails) (qname: XmlQualifiedName) =
     match qname with
-    | XmlSchema name -> SimpleType (mapXmlSchemaTypeToMethod name)
+    | XmlSchema name -> SimpleType (mapXmlSchemaType name)
     | _ -> ComplexType (xsd.GetSchemaType qname :?> XmlSchemaComplexType)
 
 let getArrayElementType (schemaType: XmlSchemaComplexType) (xsd: XsdDetails) =
@@ -99,3 +99,9 @@ let getArrayElementType (schemaType: XmlSchemaComplexType) (xsd: XsdDetails) =
             | _ -> None
         | _ -> None
     | _ -> None
+
+let inline getClassName (o: ^T) (assembly: AssemblyDetails) =
+    let attributes = (^T: (member UnhandledAttributes: XmlAttribute[]) o)
+    match attributes |> Array.tryFind (fun a -> a.NamespaceURI = assembly.TargetNamespace && a.LocalName = "name") with
+    | Some attr -> attr.Value
+    | _ -> failwithf "Xml Schema object has no name attribute."

@@ -8,6 +8,10 @@ let addParameter name (tp: Type) (m: CodeMemberMethod) =
     m.Parameters.Add(CodeParameterDeclarationExpression(tp, name)) |> ignore
     m
 
+let addParameterTypeName name (tpName: string) (m: CodeMemberMethod) =
+    m.Parameters.Add(CodeParameterDeclarationExpression(CodeTypeReference(tpName), name)) |> ignore
+    m
+
 let declareVariable (tp: Type) (nm: string) (exp: CodeExpression) = CodeVariableDeclarationStatement(tp, nm, exp)
 let variable nm = CodeVariableReferenceExpression(nm)
 let castVariable (tp: Type) (v: CodeExpression) = CodeCastExpression(tp, v)
@@ -16,6 +20,7 @@ let invoke (target: CodeExpression) methodName (args: CodeExpression list) = Cod
 let asStatement exp = CodeExpressionStatement(exp) :> CodeStatement
 let prop target name = CodePropertyReferenceExpression(target, name)
 let primitive value = CodePrimitiveExpression(value)
+let asOutParam exp = CodeDirectionExpression(FieldDirection.Out, exp)
 
 let extensionsClass name =
     let targetClass = CodeTypeDeclaration(name, IsClass=true, TypeAttributes=TypeAttributes.NestedFamANDAssem)
@@ -28,3 +33,9 @@ let extensionMethod name (returnType: Type option) (paramType: Type, paramName) 
     if returnType.IsSome then meth.ReturnType <- CodeTypeReference(returnType.Value)
     meth.Parameters.Add(CodeParameterDeclarationExpression(sprintf "this %s" paramType.FullName, paramName)) |> ignore
     meth
+
+let throwException (tp: Type) (args: CodeExpression list) =
+    CodeThrowExceptionStatement(CodeObjectCreateExpression(tp, args |> List.toArray)) :> CodeStatement
+
+let equals (exp: CodeExpression) (otherExp: CodeExpression) =
+    CodeBinaryOperatorExpression(exp, CodeBinaryOperatorType.IdentityEquality, otherExp)

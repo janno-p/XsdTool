@@ -4,6 +4,7 @@ open System.CodeDom
 open System.Collections.Generic
 open System.IO
 open System.Reflection
+open System.Text.RegularExpressions
 open System.Xml
 open System.Xml.Schema
 open XsdTool
@@ -233,18 +234,19 @@ let createDeserializationMethod (request: XmlSchemaElement) (schema: XmlSchema) 
 
 let BuildCodeNamespace assemblyNamespace assembly schemaFile =
     let schema = openSchema schemaFile
-    match getRequestResponse schema with
-    | Some(request, response) ->
+    let schemaTargetNamespace = match schema.TargetNamespace with | null -> "" | x -> x
+    match Regex.Match(schemaTargetNamespace, sprintf "^%s/(?<serviceName>\\w+)$" assembly.TargetNamespace) with
+    | m when m.Success ->
+        let serviceName = m.Groups.["serviceName"].Value
         let xsd = XsdDetails.FromSchema(schema)
 
         let targetClass = CodeTypeDeclaration(schema.Id, IsClass=true)
         targetClass.Members.Add(new CodeConstructor(Attributes=MemberAttributes.Private)) |> ignore;
-        createDeserializationMethod request schema |> Seq.iter (targetClass.Members.Add >> ignore)
 
-        let addToTargetClass = targetClass.Members.Add >> ignore
-
-        request |> Serialization.CreateRequestMethod xsd assembly |> addToTargetClass
-        response |> Serialization.CreateResponseMethod xsd assembly |> addToTargetClass
+        let serviceDetails = Serialization.ParseServiceDetails serviceName xsd assembly
+        serviceDetails |> Serialization.BuildMethods
+        //               |> List.append (serviceDetails |> Deserialization.BuildMethods)
+                       |> List.iter (targetClass.Members.Add >> ignore)
 
         targetClass.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
         targetClass.TypeAttributes <- TypeAttributes.Public ||| TypeAttributes.Sealed
@@ -254,4 +256,6 @@ let BuildCodeNamespace assemblyNamespace assembly schemaFile =
         codeNamespace.Imports.Add(CodeNamespaceImport(sprintf "%s.Ext" assemblyNamespace))
 
         Some codeNamespace
-    | _ -> None
+    | _ ->
+        printfn "Unable to extract service name from targetNamespace `%s` using base namespace `%s`." schemaTargetNamespace assembly.TargetNamespace
+        None
