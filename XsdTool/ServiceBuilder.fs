@@ -7,10 +7,40 @@ open System.Xml.Schema
 open XsdTool.Code
 open XsdTool.Xsd
 
+type PrimitiveType =
+    | Default of System.Type
+    | NotNull of System.Type
+    | Convert of System.Type * System.Type
+
+let getRuntimeType (tp: PrimitiveType) =
+    match tp with
+    | Default rtp -> rtp
+    | NotNull rtp -> rtp
+    | Convert (_, rtp) -> rtp
+
+let getXmlType (tp: PrimitiveType) =
+    match tp with
+    | Default rtp -> rtp
+    | NotNull rtp -> rtp
+    | Convert (_, rtp) -> rtp
+
+let typeIsNullable (tp: System.Type) =
+    match tp.IsGenericType && tp.GetGenericTypeDefinition() = typedefof<System.Nullable<_>> with
+    | true -> (true, System.Nullable.GetUnderlyingType(tp))
+    | _ -> (false, tp)
+
+let convertTo (tp: System.Type) (exp: CodeExpression) =
+    let convertMethod = match (snd (typeIsNullable tp)).FullName with
+                        | "System.String" -> "ToString"
+                        | "System.Int64" -> "ToInt64"
+                        | "System.DateTime" -> "ToDateTime"
+                        | _ -> failwithf "Unresolved type %O" tp
+    invoke (typeOf typeof<System.Convert>) convertMethod [exp]
+
 type Element =
     | Choice of typeName: string * elements: Element list
     | ChoiceEntity of typeName: string * elements: Element list
-    | Primitive of name: string * sysType: System.Type * methodName: string
+    | Primitive of name: string * sysType: PrimitiveType * methodName: string
     | Array of name: string * item: Element
     | Entity of name: string * sysType: System.Type * elements: Element list
 
@@ -26,49 +56,76 @@ let rec private getParameterRuntimeType (p: Element) =
     match p with
     | Choice (tpName, _) -> CodeTypeReference(tpName)
     | ChoiceEntity (tpName, _) -> CodeTypeReference(tpName)
-    | Primitive (_, tp, _) -> CodeTypeReference(tp)
+    | Primitive (_, tp, _) -> CodeTypeReference(getRuntimeType(tp))
     | Array (_, item) -> getParameterRuntimeType(item)
     | Entity (_, tp, _) -> CodeTypeReference(tp)
 
 let private getElementSysType (e: Element) =
     match e with
-    | Primitive (_, tp, _) -> tp
+    | Primitive (_, tp, _) -> getRuntimeType(tp)
     | Entity (_, tp, _) -> tp
     | _ -> failwithf "Unable to retrieve system runtime type for element %O" e
 
 let ParseServiceDetails serviceName (xsd: XsdDetails) (assembly: AssemblyDetails) =
     let requestType, responseType = xsd |> getRequestResponse serviceName
-    let rec getContainedElements (o: XmlSchemaObject) = seq {
-        let convertElement (element: XmlSchemaElement) =
+    let rec getContainedElements (parentType: System.Type option) (o: XmlSchemaObject) = seq {
+        let convertElement (parentType: System.Type option) (element: XmlSchemaElement) =
             match mapType xsd element.SchemaTypeName with
-            | SimpleType (tp, suffix) -> Primitive(element.Name, tp, suffix)
+            | SimpleType (tp, suffix) ->
+                let runTimeType =
+                    match parentType with
+                    | Some ptp ->
+                        let fieldType = ptp.GetField(element.Name).FieldType
+                        match typeIsNullable(fieldType) with
+                        | true, _ -> match fieldType = tp with
+                                     | true -> Default(fieldType)
+                                     | _ -> Convert(tp, fieldType)
+                        | _, ftp ->
+                            match ftp.IsClass with
+                            | false -> let fixTp = typedefof<System.Nullable<_>>.MakeGenericType(ftp)
+                                       match fixTp = tp with
+                                       | true -> NotNull(tp)
+                                       | _ -> Convert(tp, ftp)
+                            | _ -> match ftp = tp with
+                                   | true -> Default(tp)
+                                   | _ -> Convert(tp, ftp)
+                    | _ -> Default(tp)
+                Primitive(element.Name, runTimeType, suffix)
             | ComplexType schemaType ->
                 match getArrayElementType schemaType xsd with
-                | Some (arrTp, itemName) -> Array(element.Name, Entity(itemName, assembly.GetRuntimeType(arrTp), getContainedElements arrTp.Particle |> Seq.toList))
-                | _ -> Entity(element.Name, assembly.GetRuntimeType(schemaType), getContainedElements schemaType.Particle |> Seq.toList)
+                | Some (arrTp, itemName) ->
+                    let arrayElementSysType = assembly.GetRuntimeType(arrTp)
+                    let childElements = getContainedElements (Some arrayElementSysType) arrTp.Particle |> Seq.toList
+                    let arrayElement = Entity(itemName, arrayElementSysType, childElements)
+                    Array(element.Name, arrayElement)
+                | _ ->
+                    let entitySysType = assembly.GetRuntimeType(schemaType)
+                    let childElements = getContainedElements (Some entitySysType) schemaType.Particle |> Seq.toList
+                    Entity(element.Name, entitySysType, childElements)
         match o with
         | :? XmlSchemaSequence as sequence ->
             for item in sequence.Items do
                 match item with
                 | :? XmlSchemaElement as element ->
-                    yield convertElement element
+                    yield convertElement parentType element
                 | :? XmlSchemaChoice as choice ->
                     let elements =
                         [for item in choice.Items -> item] |> List.map (fun item ->
                             match item with
-                            | :? XmlSchemaElement as element -> convertElement element
+                            | :? XmlSchemaElement as element ->
+                                convertElement None element
                             | :? XmlSchemaSequence as sequence ->
-                                ChoiceEntity(assembly |> getClassName sequence, getContainedElements sequence |> Seq.toList)
+                                ChoiceEntity(assembly |> getClassName sequence, getContainedElements None sequence |> Seq.toList)
                             | _ -> failwithf "Unhandled choice item: %O!" item
                         )
                     yield Choice(assembly |> getClassName choice, elements)
                 | _ -> failwithf "Unhandled request sequence item %O" item
-        | :? XmlSchemaGroupRef as groupRef -> yield! xsd.GetGroup(groupRef.RefName).Particle |> getContainedElements
+        | :? XmlSchemaGroupRef as groupRef -> yield! xsd.GetGroup(groupRef.RefName).Particle |> getContainedElements parentType
         | _ -> failwithf "Unhandled request particle type %O" requestType.Particle
     }
     let responseSysType = assembly.GetRuntimeType(responseType)
-    { Parameters = getContainedElements requestType.Particle |> Seq.toList
-      Result = Entity("keha", responseSysType, getContainedElements responseType.Particle |> Seq.toList) }
+    { Parameters = getContainedElements None requestType.Particle |> Seq.toList
+      Result = Entity("keha", responseSysType, getContainedElements (Some responseSysType) responseType.Particle |> Seq.toList) }
 
 let buildVariableNameGenerator () =
     let variableCounter = ref 1
@@ -88,17 +145,27 @@ module Deserialization =
 
         let methodName sfx = sprintf "Read%s" sfx
 
+        let getElementName (e: Element) =
+            match e with
+            | Primitive(name,_,_) -> name
+            | Entity(name,_,_) -> name
+            | _ -> failwithf "No name %O" e
+
         let rec buildStatements (expType: ExpType) (arg: Element) = seq<CodeStatement> {
             match arg with
             | Array(name, element) ->
+                let messageFormat = sprintf "Expected element with name `%s` but `{0}` was found." name
+                let messageStatement = invoke (typeOf typeof<string>) "Format" [primitive messageFormat; prop (variable "reader") "LocalName"]
+                yield upcast CodeConditionStatement(inequals (prop (variable "reader") "LocalName") (primitive name),
+                                                    throwException typeof<System.Exception> [messageStatement])
                 let variableName = nextVariableName()
                 let itemVariableName = nextVariableName()
                 let listType = typedefof<System.Collections.Generic.List<_>>.MakeGenericType(getElementSysType element)
                 let varExp = match expType with | Top varName -> variable varName | Node exp -> prop exp name
                 let statements = [|
                     createObject listType [] |> declareVariable listType variableName
-                    CodeIterationStatement(CodeSnippetStatement(),
-                                           CodeSnippetExpression(),
+                    CodeIterationStatement(invoke (variable "reader") "MoveToNextElement" [] |> asStatement,
+                                           equals (prop (variable "reader") "LocalName") (primitive (getElementName element)),
                                            CodeSnippetStatement(),
                                            [ invoke (variable variableName) "Add" [variable itemVariableName] |> asStatement ]
                                                 |> Seq.append (buildStatements (Top itemVariableName) element)
@@ -120,7 +187,7 @@ module Deserialization =
                             throwException typeof<System.Exception> [messageStatement]
                         | e::es ->
                             match e with
-                            | Primitive(name, sysType, suffix) ->
+                            | Primitive(name, _, suffix) ->
                                 let createChoice = invoke (typeOfName typeName) (sprintf "New%s" name) [invoke (variable "reader") (methodName suffix) []]
                                 upcast CodeConditionStatement(equals (prop (variable "reader") "LocalName") (primitive name),
                                                               [| assign (variable varName) createChoice |],
@@ -162,9 +229,14 @@ module Deserialization =
                 yield upcast CodeConditionStatement(inequals (prop (variable "reader") "LocalName") (primitive name),
                                                     throwException typeof<System.Exception> [messageStatement])
                 let invokeStatement = invoke (variable "reader") (methodName suffix) []
+                let fixedType, fixedInvokeStatement =
+                    match sysType with
+                    | Default(tp) -> tp, invokeStatement
+                    | NotNull(tp) -> tp, (prop invokeStatement "Value")
+                    | Convert(_, ftp) -> ftp, (invokeStatement |> convertTo ftp)
                 match expType with
-                | Top varName -> yield (invokeStatement |> declareVariable sysType varName)
-                | Node exp -> yield (invokeStatement |> assign (prop exp name))
+                | Top varName -> yield (fixedInvokeStatement |> declareVariable fixedType varName)
+                | Node exp -> yield (fixedInvokeStatement |> assign (prop exp name))
             | _ -> failwithf "Unexpected type tree element %O" arg
         }
 
@@ -216,6 +288,9 @@ module Serialization =
                     | e :: es ->
                         match e with
                         | Primitive (name, sysType, suffix) ->
+                            let sysType = match sysType with
+                                          | Default(sysType) -> sysType
+                                          | _ -> failwithf "Generated type elements should always have default type but was %O." sysType
                             let variableName = nextVariableName()
                             [| CodeVariableDeclarationStatement(sysType, variableName) :> CodeStatement
                                CodeConditionStatement(invoke exp (sprintf "TryGet%s" name) [variable variableName |> asOutParam],
@@ -231,7 +306,7 @@ module Serialization =
                 yield upcast CodeConditionStatement(equals exp (primitive null),
                                                     [| throwException typeof<System.ArgumentNullException> [primitive typeName] |],
                                                     elementsToStatements elements)
-            | Primitive (name, sysType, suffix) ->
+            | Primitive (name, _, suffix) ->
                 let exp =  match argExp with | Top exp -> exp | Node exp -> prop exp name
                 yield invoke (variable "writer") (methodName suffix) [primitive name; exp] |> asStatement
             | Array (name, element) ->
@@ -320,8 +395,11 @@ module Types =
                     let collectedMembers =
                         elements |> List.map (fun el ->
                             match el with
-                            | Primitive(name, sysType, _) -> (name, getIndex (SimpleType sysType), CodeTypeReference(sysType))
-                            | ChoiceEntity(typeName, elements) -> (typeName, getIndex (ComplexType typeName), CodeTypeReference(typeName))
+                            | Primitive(name, sysType, _) ->
+                                match sysType with
+                                | Default(sysType) -> (name, getIndex (SimpleType sysType), CodeTypeReference(sysType))
+                                | _ -> failwithf "Generated type elements should always have default type but was %O." sysType
+                            | ChoiceEntity(typeName, _) -> (typeName, getIndex (ComplexType typeName), CodeTypeReference(typeName))
                             | _ -> failwith "Unsupported %O" el)
                     fieldTypes |> Seq.iteri (fun i ft ->
                         let name = sprintf "value%d" i
@@ -378,7 +456,10 @@ module Types =
                 elements |> List.iter (fun el ->
                     match el with
                     | Primitive(name, sysType, _) ->
-                        entityType.Members.Add(CodeMemberField(sysType, name, Attributes=MemberAttributes.Public)) |> ignore
+                        match sysType with
+                        | Default(sysType) ->
+                            entityType.Members.Add(CodeMemberField(sysType, name, Attributes=MemberAttributes.Public)) |> ignore
+                        | _ -> failwithf "Generated type elements should always have default type but was %O." sysType
                     | _ -> failwithf "Unsupported element type %O" el
                 )
                 yield entityType

@@ -29,10 +29,8 @@ AppDomain.CurrentDomain.add_AssemblyResolve(fun _ args ->
     | _ -> null)
 
 let printCode (codeUnit: CodeCompileUnit) (codeProvider: #CodeDomProvider) =
-    let sb = StringBuilder()
-    use writer = new StringWriter(sb)
+    use writer = new StreamWriter(File.Open(@"C:\Git\TryCode\TryCode\Class1.cs", FileMode.Create))
     codeProvider.GenerateCodeFromCompileUnit(codeUnit, writer, CodeGeneratorOptions())
-    printfn "%s" (sb.ToString())
 
 let compileAssembly (codeUnit: CodeCompileUnit) (codeProvider: #CodeDomProvider) =
     let parameters = CompilerParameters(GenerateExecutable=false, OutputAssembly=Settings.AssemblyName)
@@ -84,7 +82,7 @@ let main _ =
 
     let codeCompileUnit = CodeCompileUnit()
     codeCompileUnit.ReferencedAssemblies.Add("System.Xml.dll") |> ignore
-    //codeCompileUnit.ReferencedAssemblies.Add(Path.Combine(assembliesConfig.probingPath, "Etoimik.Xtee.dll")) |> ignore
+    codeCompileUnit.ReferencedAssemblies.Add(Path.Combine(assembliesConfig.probingPath, "Etoimik.Xtee.dll")) |> ignore
     codeCompileUnit.ReferencedAssemblies.Add(Path.Combine(assembliesConfig.probingPath, sprintf "%s.dll"  assembliesConfig.assembly)) |> ignore
 
     let extensionsNamespace = CodeNamespace(sprintf "%s.Ext" Settings.AssemblyNamespace)
@@ -99,7 +97,7 @@ let main _ =
     use codeProvider = new CSharpCodeProvider()
 
     let execute = printCode codeCompileUnit
-    let execute = compileAssembly codeCompileUnit
+    //let execute = compileAssembly codeCompileUnit
 
     codeProvider |> execute
 
