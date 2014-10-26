@@ -96,7 +96,7 @@ let main _ =
 
     use codeProvider = new CSharpCodeProvider()
 
-    //codeProvider |> printCode codeCompileUnit
-    codeProvider |> compileAssembly codeCompileUnit
+    codeProvider |> printCode codeCompileUnit
+    //codeProvider |> compileAssembly codeCompileUnit
 
     0

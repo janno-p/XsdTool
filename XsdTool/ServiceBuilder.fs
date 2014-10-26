@@ -226,9 +226,12 @@ module Deserialization =
                                                         throwException typeof<System.Exception> [messageStatement])
                     let variableName = nextVariableName()
                     yield primitive null |> declareVariable sysType variableName
-                    let moveStatement = invoke (variable "reader") "MoveToNextElement" [] |> asStatement
+                    let createStatements = [
+                        createObject sysType [] |> assign (variable variableName)
+                        invoke (variable "reader") "MoveToNextElement" [] |> asStatement
+                    ]
                     yield upcast CodeConditionStatement(invoke (variable "reader") "IsNilElementExt" [] |> equals (primitive false),
-                                                        elements |> Seq.collect (buildStatements (Node(variable variableName))) |> Seq.append [moveStatement] |> Seq.toArray)
+                                                        elements |> Seq.collect (buildStatements (Node(variable variableName))) |> Seq.append createStatements |> Seq.toArray)
                     yield assign (prop exp name) (variable variableName)
             | Primitive(name, sysType, suffix) ->
                 let messageFormat = sprintf "Expected element with name `%s` but `{0}` was found." name
@@ -273,6 +276,12 @@ module Deserialization =
             let meth = CodeMemberMethod(Name="DeserializeResponse", Attributes=(MemberAttributes.Public ||| MemberAttributes.Static))
                        |> addParameter "reader" typeof<XmlReader>
             meth.ReturnType <- getParameterRuntimeType serviceDetails.Result
+            meth |> addStatement (CodeIterationStatement(invoke (variable "reader") "Read" [] |> asStatement,
+                                                         CodeBinaryOperatorExpression(inequals (prop (variable "reader") "NodeType") (prop (typeOf typeof<XmlNodeType>) "Element"),
+                                                                                      CodeBinaryOperatorType.BooleanAnd,
+                                                                                      invoke (variable "reader") "Read" []),
+                                                         CodeSnippetStatement()))
+                 |> ignore
             buildStatements (Top "vastus") serviceDetails.Result
             |> Seq.iter (fun e -> meth |> addStatement e |> ignore)
             meth |> addStatement (Some (variable "vastus") |> returns)

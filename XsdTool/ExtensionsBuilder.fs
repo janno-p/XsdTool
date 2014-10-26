@@ -14,7 +14,9 @@ module XmlReader =
         createXmlReaderExtensionMethod "IsNilElementExt" typeof<bool>
         |> addStatement (invoke (variable "reader") "GetAttribute" [primitive "nil"; primitive xsiNamespace]
                          |> declareVariable typeof<string> "value")
-        |> addStatement (Some (invoke (CodeTypeReferenceExpression typeof<Convert>) "ToBoolean" [variable "value"])
+        |> addStatement ((Some (CodeBinaryOperatorExpression(inequals (variable "value") (primitive null),
+                                                     CodeBinaryOperatorType.BooleanAnd,
+                                                     invoke (typeOf typeof<Convert>) "ToBoolean" [variable "value"]) :> CodeExpression))
                          |> returns)
 
     let private createReadLongExt () =
