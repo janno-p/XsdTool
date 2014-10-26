@@ -16,7 +16,7 @@ module XmlReader =
                          |> declareVariable typeof<string> "value")
         |> addStatement ((Some (CodeBinaryOperatorExpression(inequals (variable "value") (primitive null),
                                                      CodeBinaryOperatorType.BooleanAnd,
-                                                     invoke (typeOf typeof<Convert>) "ToBoolean" [variable "value"]) :> CodeExpression))
+                                                     invoke (typeOf typeof<System.Xml.XmlConvert>) "ToBoolean" [variable "value"]) :> CodeExpression))
                          |> returns)
 
     let private createReadLongExt () =
