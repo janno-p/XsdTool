@@ -252,6 +252,12 @@ module Deserialization =
                        |> addParameter "reader" typeof<XmlReader>
             meth.ReturnType <- CodeTypeReference(typeof<obj[]>)
             let result = System.Collections.Generic.List<_>()
+            meth |> addStatement (CodeIterationStatement(invoke (variable "reader") "Read" [] |> asStatement,
+                                                         CodeBinaryOperatorExpression(inequals (prop (variable "reader") "NodeType") (prop (typeOf typeof<XmlNodeType>) "Element"),
+                                                                                      CodeBinaryOperatorType.BooleanAnd,
+                                                                                      invoke (variable "reader") "Read" []),
+                                                         CodeSnippetStatement()))
+                 |> ignore
             serviceDetails.Parameters |> List.iteri (fun i p ->
                 let argName = sprintf "arg%d" i
                 result.Add(argName)
