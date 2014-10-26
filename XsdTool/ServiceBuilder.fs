@@ -213,15 +213,22 @@ module Deserialization =
                 match expType with
                 | Top varName ->
                     yield primitive null |> declareVariable sysType varName
-                    let createStatement = createObject sysType [] |> assign (variable varName)
+                    let createStatements = [
+                        createObject sysType [] |> assign (variable varName)
+                        invoke (variable "reader") "MoveToNextElement" [] |> asStatement
+                    ]
                     yield upcast CodeConditionStatement(invoke (variable "reader") "IsNilElementExt" [] |> equals (primitive false),
-                                                        elements |> Seq.collect (buildStatements (Node(variable varName))) |> Seq.append [createStatement] |> Seq.toArray)
+                                                        elements |> Seq.collect (buildStatements (Node(variable varName))) |> Seq.append createStatements |> Seq.toArray)
                 | Node exp ->
+                    let messageFormat = sprintf "Expected element with name `%s` but `{0}` was found." name
+                    let messageStatement = invoke (typeOf typeof<string>) "Format" [primitive messageFormat; prop (variable "reader") "LocalName"]
+                    yield upcast CodeConditionStatement(inequals (prop (variable "reader") "LocalName") (primitive name),
+                                                        throwException typeof<System.Exception> [messageStatement])
                     let variableName = nextVariableName()
                     yield primitive null |> declareVariable sysType variableName
-                    let createStatement = createObject sysType [] |> assign (prop exp name)
+                    let moveStatement = invoke (variable "reader") "MoveToNextElement" [] |> asStatement
                     yield upcast CodeConditionStatement(invoke (variable "reader") "IsNilElementExt" [] |> equals (primitive false),
-                                                        elements |> Seq.collect (buildStatements (Node(variable variableName))) |> Seq.append [createStatement] |> Seq.toArray)
+                                                        elements |> Seq.collect (buildStatements (Node(variable variableName))) |> Seq.append [moveStatement] |> Seq.toArray)
                     yield assign (prop exp name) (variable variableName)
             | Primitive(name, sysType, suffix) ->
                 let messageFormat = sprintf "Expected element with name `%s` but `{0}` was found." name
