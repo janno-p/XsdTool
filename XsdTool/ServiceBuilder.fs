@@ -173,7 +173,9 @@ module Deserialization =
                                           ) :> CodeStatement
                     invoke (variable variableName) "ToArray" [] |> assign varExp
                 |]
-                yield upcast CodeConditionStatement(invoke (variable "reader") "IsNilElementExt" [] |> equals (primitive false), statements)
+                yield upcast CodeConditionStatement(invoke (variable "reader") "IsNilElementExt" [],
+                                                    [| invoke (variable "reader") "MoveToNextElement" [] |> asStatement |],
+                                                    statements)
             | Choice(typeName, elements) ->
                 match expType with
                 | Top varName ->
@@ -217,7 +219,8 @@ module Deserialization =
                         createObject sysType [] |> assign (variable varName)
                         invoke (variable "reader") "MoveToNextElement" [] |> asStatement
                     ]
-                    yield upcast CodeConditionStatement(invoke (variable "reader") "IsNilElementExt" [] |> equals (primitive false),
+                    yield upcast CodeConditionStatement(invoke (variable "reader") "IsNilElementExt" [],
+                                                        [| invoke (variable "reader") "MoveToNextElement" [] |> asStatement |],
                                                         elements |> Seq.collect (buildStatements (Node(variable varName))) |> Seq.append createStatements |> Seq.toArray)
                 | Node exp ->
                     let messageFormat = sprintf "Expected element with name `%s` but `{0}` was found." name
@@ -230,7 +233,8 @@ module Deserialization =
                         createObject sysType [] |> assign (variable variableName)
                         invoke (variable "reader") "MoveToNextElement" [] |> asStatement
                     ]
-                    yield upcast CodeConditionStatement(invoke (variable "reader") "IsNilElementExt" [] |> equals (primitive false),
+                    yield upcast CodeConditionStatement(invoke (variable "reader") "IsNilElementExt" [],
+                                                        [| invoke (variable "reader") "MoveToNextElement" [] |> asStatement |],
                                                         elements |> Seq.collect (buildStatements (Node(variable variableName))) |> Seq.append createStatements |> Seq.toArray)
                     yield assign (prop exp name) (variable variableName)
             | Primitive(name, sysType, suffix) ->
