@@ -29,7 +29,9 @@ let asStatement exp = CodeExpressionStatement(exp) :> CodeStatement
 let prop target name : CodeExpression =
     upcast CodePropertyReferenceExpression(target, name)
 
-let primitive value = CodePrimitiveExpression(value)
+let primitive value : CodeExpression =
+    upcast CodePrimitiveExpression(value)
+
 let asOutParam exp = CodeDirectionExpression(FieldDirection.Out, exp)
 
 let extensionsClass name =

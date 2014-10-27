@@ -30,12 +30,12 @@ let typeIsNullable (tp: System.Type) =
     | _ -> (false, tp)
 
 let convertTo (tp: System.Type) (exp: CodeExpression) =
-    let convertMethod = match (snd (typeIsNullable tp)).FullName with
-                        | "System.String" -> "ToString"
-                        | "System.Int64" -> "ToInt64"
-                        | "System.DateTime" -> "ToDateTime"
-                        | _ -> failwithf "Unresolved type %O" tp
-    invoke (typeOf typeof<System.Convert>) convertMethod [exp]
+    let sysConvert convertMethod = invoke (typeOf typeof<System.Convert>) convertMethod [exp]
+    match (snd (typeIsNullable tp)).FullName with
+    | "System.String" -> invoke (typeOfName "XmlReaderExtensions") "ConvertToString" [exp]
+    | "System.Int64" -> sysConvert "ToInt64"
+    | "System.DateTime" -> sysConvert "ToDateTime"
+    | _ -> failwithf "Unresolved type %O" tp
 
 type Element =
     | Choice of typeName: string * elements: Element list
@@ -280,12 +280,6 @@ module Deserialization =
             let meth = CodeMemberMethod(Name="DeserializeResponse", Attributes=(MemberAttributes.Public ||| MemberAttributes.Static))
                        |> addParameter "reader" typeof<XmlReader>
             meth.ReturnType <- getParameterRuntimeType serviceDetails.Result
-            meth |> addStatement (CodeIterationStatement(invoke (variable "reader") "Read" [] |> asStatement,
-                                                         CodeBinaryOperatorExpression(inequals (prop (variable "reader") "NodeType") (prop (typeOf typeof<XmlNodeType>) "Element"),
-                                                                                      CodeBinaryOperatorType.BooleanAnd,
-                                                                                      invoke (variable "reader") "Read" []),
-                                                         CodeSnippetStatement()))
-                 |> ignore
             buildStatements (Top "vastus") serviceDetails.Result
             |> Seq.iter (fun e -> meth |> addStatement e |> ignore)
             meth |> addStatement (Some (variable "vastus") |> returns)

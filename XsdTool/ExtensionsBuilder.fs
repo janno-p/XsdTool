@@ -10,6 +10,16 @@ module XmlReader =
 
     let private xsiNamespace = "http://www.w3.org/2001/XMLSchema-instance"
 
+    let private createConvertToStringExt () =
+        let meth = CodeMemberMethod()
+        meth.Attributes <- MemberAttributes.Public ||| MemberAttributes.Static
+        meth.Name <- "ConvertToString"
+        meth.ReturnType <- CodeTypeReference(typeof<string>)
+        meth |> addParameter "value" typeof<obj>
+             |> addStatement (CodeConditionStatement(equals (variable "value") (primitive null),
+                                                     [| returns (Some (primitive null)) |],
+                                                     [| returns (Some(invoke (typeOf typeof<System.Convert>) "ToString" [variable "value"])) |]))
+
     let private createIsNilElementExt () =
         createXmlReaderExtensionMethod "IsNilElementExt" typeof<bool>
         |> addStatement (invoke (variable "reader") "GetAttribute" [primitive "nil"; primitive xsiNamespace]
@@ -84,6 +94,7 @@ module XmlReader =
 
     let CreateExtensionClass () =
         let targetClass = extensionsClass "XmlReaderExtensions"
+        targetClass.Members.Add(createConvertToStringExt()) |> ignore
         targetClass.Members.Add(createMoveToNextElementMethod()) |> ignore
         targetClass.Members.Add(createIsNilElementExt()) |> ignore
         targetClass.Members.Add(createReadStringExt()) |> ignore
